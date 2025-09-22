@@ -88,6 +88,35 @@ describe("planSync", () => {
     expect(plan.startBlock).toBe(100);
     accessSpy.mockRestore();
   });
+
+  it("logs a warning once when sqlite3 CLI is unavailable", async () => {
+    const accessSpy = vi.spyOn(fs, "access").mockResolvedValue(undefined);
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const sqliteError = Object.assign(new Error("missing"), { code: "ENOENT" });
+
+    spawnSyncMock.mockReturnValue({
+      pid: 0,
+      output: [],
+      stdout: "",
+      stderr: "",
+      status: 1,
+      signal: null,
+      error: sqliteError,
+    } as unknown as ReturnType<typeof spawnSync>);
+
+    await planSync(makeConfig(), "/tmp/optimism.db", "/tmp/optimism.db.tar.gz");
+    expect(logSpy).toHaveBeenCalledWith(
+      "⚠️  sqlite3 CLI not found; skipping local sync-status inspection.",
+    );
+
+    logSpy.mockClear();
+
+    await planSync(makeConfig(), "/tmp/optimism.db", "/tmp/optimism.db.tar.gz");
+    expect(logSpy).not.toHaveBeenCalled();
+
+    accessSpy.mockRestore();
+    logSpy.mockRestore();
+  });
 });
 
 describe("prepareDatabase", () => {

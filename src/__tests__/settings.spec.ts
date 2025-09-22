@@ -61,6 +61,27 @@ orderbooks:
       deploymentBlock: 100,
     });
   });
+
+  it("ignores malformed entries and whitespace", () => {
+    const yaml = `
+networks:
+  Invalid:
+    chain-id: not-a-number
+    rpcs:
+      -    
+      - https://rpc.invalid
+orderbooks:
+  Invalid:
+    address:
+    deployment-block: not-a-number
+`;
+
+    const parsed = parseSettingsYaml(yaml);
+    expect(parsed.networks.Invalid.chainId).toBeUndefined();
+    expect(parsed.networks.Invalid.rpcs).toEqual(["https://rpc.invalid"]);
+    expect(parsed.orderbooks.Invalid.address).toBeUndefined();
+    expect(parsed.orderbooks.Invalid.deploymentBlock).toBeUndefined();
+  });
 });
 
 describe("buildOrderbookConfigs", () => {
@@ -135,6 +156,30 @@ describe("buildOrderbookConfigs", () => {
     expect(logSpy).toHaveBeenCalledWith(
       "Skipping Missing: missing network configuration",
     );
+    logSpy.mockRestore();
+  });
+
+  it("skips networks without chain IDs", () => {
+    const settings: ParsedSettings = {
+      networks: {
+        NoChain: {
+          rpcs: ["https://example.com"],
+        },
+      },
+      orderbooks: {
+        NoChain: {
+          address: "0xdead",
+          deploymentBlock: 42,
+        },
+      },
+    };
+
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const configs = buildOrderbookConfigs(settings, []);
+
+    expect(configs).toHaveLength(0);
+    expect(logSpy).toHaveBeenCalledWith("Skipping NoChain: chain-id not defined");
+
     logSpy.mockRestore();
   });
 });

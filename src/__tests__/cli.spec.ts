@@ -74,4 +74,12 @@ describe("runCliSync", () => {
       runCliSync("/bin/rain", baseConfig, "/tmp/db.sqlite", "token-123"),
     ).rejects.toThrow("CLI sync failed");
   });
+
+  it("throws when no RPC endpoints are configured", async () => {
+    const configWithoutRpcs: OrderbookConfig = { ...baseConfig, rpcs: [] };
+
+    await expect(
+      runCliSync("/bin/rain", configWithoutRpcs, "/tmp/db.sqlite", "token-123"),
+    ).rejects.toThrow("No RPC URLs configured for optimism");
+  });
 });
