@@ -1,0 +1,13 @@
+{
+  "name": "rain-local-db-sync",
+  "version": "0.1.0",
+  "description": "Utilities for syncing Rain orderbook data into a local SQLite database.",
+  "scripts": {
+    "build": "tsc",
+    "sync": "ts-node src/sync.ts"
+  },
+  "devDependencies": {
+    "ts-node": "^10.9.2",
+    "typescript": "^5.4.0"
+  }
+}

@@ -1,0 +1,14 @@
+# Node / TypeScript build artifacts
+node_modules/
+dist/
+
+# CLI outputs
+bin/
+
+# Downloaded archives
+rain-orderbook-cli.tar.gz
+
+# Editor settings
+.DS_Store
+
+.env
