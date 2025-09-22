@@ -1,14 +1,13 @@
 import https from "https";
 import { spawnSync } from "child_process";
 import { promises as fs } from "fs";
-import { resolve, join } from "path";
+import { resolve, join, basename, dirname } from "path";
 
 interface CliOptions {
   networks: string[];
   dbDir: string;
   cliDir: string;
   keepArchive: boolean;
-  dryRun: boolean;
 }
 
 interface NetworkSettings {
@@ -36,6 +35,7 @@ interface OrderbookConfig {
 
 interface SyncPlan {
   dbPath: string;
+  dumpPath: string;
   lastSyncedBlock: number | null;
   startBlock: number;
 }
@@ -85,7 +85,6 @@ function parseArgs(argv: string[]): CliOptions {
     dbDir: "data",
     cliDir: "bin",
     keepArchive: false,
-    dryRun: false,
   };
 
   for (let i = 0; i < argv.length; i += 1) {
@@ -127,10 +126,6 @@ function parseArgs(argv: string[]): CliOptions {
         options.keepArchive = true;
         break;
       }
-      case "--dry-run": {
-        options.dryRun = true;
-        break;
-      }
       case "--help":
       case "-h": {
         printUsage();
@@ -158,7 +153,6 @@ function printUsage(): void {
     "  --cli-dir <path>       Directory to extract CLI binary (default: bin)",
   );
   console.log("  --keep-archive         Keep the downloaded CLI archive");
-  console.log("  --dry-run              Print commands without executing them");
 }
 
 function fetchText(url: string): Promise<string> {
@@ -577,9 +571,9 @@ async function getLastSyncedBlock(dbPath: string): Promise<number | null> {
 
 async function planSync(
   config: OrderbookConfig,
-  dbDir: string,
+  dbPath: string,
+  dumpPath: string,
 ): Promise<SyncPlan> {
-  const dbPath = join(dbDir, `${config.network}.db`);
   const lastSyncedBlock = await getLastSyncedBlock(dbPath);
   const startCandidate =
     lastSyncedBlock !== null ? lastSyncedBlock + 1 : config.deploymentBlock;
@@ -587,6 +581,7 @@ async function planSync(
 
   return {
     dbPath,
+    dumpPath,
     lastSyncedBlock,
     startBlock,
   };
@@ -620,6 +615,7 @@ function logBlock(title: string, entries: LogEntry[]): void {
 function logPlan(config: OrderbookConfig, plan: SyncPlan): void {
   const entries: LogEntry[] = [
     { label: "Database path", value: plan.dbPath },
+    { label: "Dump path", value: plan.dumpPath },
     { label: "Orderbook", value: config.orderbookAddress },
     { label: "Chain ID", value: String(config.chainId) },
     { label: "Deployment block", value: formatNumber(config.deploymentBlock) },
@@ -642,15 +638,80 @@ function logPlan(config: OrderbookConfig, plan: SyncPlan): void {
   logBlock(`Plan for ${config.network}`, entries);
 }
 
+async function prepareDatabase(
+  network: string,
+  dbDir: string,
+): Promise<{ dbPath: string; dumpPath: string }> {
+  const dbPath = join(dbDir, `${network}.db`);
+  const dumpPath = join(dbDir, `${network}.db.tar.gz`);
+
+  await fs.mkdir(dbDir, { recursive: true });
+
+  if (await pathExists(dbPath)) {
+    await fs.unlink(dbPath);
+  }
+
+  if (await pathExists(dumpPath)) {
+    console.log(`Extracting dump for ${network} from ${dumpPath}`);
+    const extract = spawnSync("tar", ["-xzf", dumpPath, "-C", dbDir], {
+      stdio: "inherit",
+    });
+    if (extract.status !== 0) {
+      throw new Error(
+        `Failed to extract dump for ${network} (exit code ${extract.status ?? "unknown"})`,
+      );
+    }
+  } else {
+    console.log(`No existing dump for ${network}; CLI will initialize a new database.`);
+  }
+
+  return { dbPath, dumpPath };
+}
+
+async function finalizeDatabase(
+  network: string,
+  dbPath: string,
+  dumpPath: string,
+): Promise<void> {
+  const dbExists = await pathExists(dbPath);
+
+  if (!dbExists) {
+    console.log(`No database file produced for ${network}; skipping archive.`);
+    return;
+  }
+
+  const tempDumpPath = `${dumpPath}.tmp`;
+  console.log(`Archiving database for ${network} to ${dumpPath}`);
+  const pack = spawnSync(
+    "tar",
+    [
+      "-czf",
+      tempDumpPath,
+      "-C",
+      dirname(dbPath),
+      basename(dbPath),
+    ],
+    { stdio: "inherit" },
+  );
+  if (pack.status !== 0) {
+    await fs.unlink(tempDumpPath).catch(() => undefined);
+    throw new Error(
+      `Failed to archive database for ${network} (exit code ${pack.status ?? "unknown"})`,
+    );
+  }
+
+  await fs.unlink(dumpPath).catch(() => undefined);
+  await fs.rename(tempDumpPath, dumpPath);
+  await fs.unlink(dbPath).catch(() => undefined);
+}
+
 async function runCliSync(
   cliBinary: string,
   config: OrderbookConfig,
-  dbDir: string,
+  dbPath: string,
   apiToken: string | null,
-  dryRun: boolean,
 ): Promise<void> {
-  await fs.mkdir(dbDir, { recursive: true });
-  const dbPath = join(dbDir, `${config.network}.db`);
+  await fs.mkdir(dirname(dbPath), { recursive: true });
   const args = [
     "local-db",
     "sync",
@@ -690,11 +751,6 @@ async function runCliSync(
   }
 
   console.log("Running:", [cliBinary, ...args].join(" "));
-  if (dryRun) {
-    console.log("Dry-run mode enabled; CLI command skipped.");
-    return;
-  }
-
   const result = spawnSync(cliBinary, args, { stdio: "inherit" });
   if (result.status !== 0) {
     throw new Error(
@@ -751,9 +807,15 @@ async function main(): Promise<void> {
   await fs.mkdir(dbDir, { recursive: true });
 
   for (const config of configs) {
-    const plan = await planSync(config, dbDir);
-    logPlan(config, plan);
-    await runCliSync(cliBinary, config, dbDir, apiToken, options.dryRun);
+    const { dbPath, dumpPath } = await prepareDatabase(config.network, dbDir);
+    try {
+      const plan = await planSync(config, dbPath, dumpPath);
+      logPlan(config, plan);
+      await runCliSync(cliBinary, config, dbPath, apiToken);
+      await finalizeDatabase(config.network, dbPath, dumpPath);
+    } finally {
+      await fs.unlink(dbPath).catch(() => undefined);
+    }
   }
 
   const endTime = new Date();
