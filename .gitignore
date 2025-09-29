@@ -1,16 +1,10 @@
-# Node / TypeScript build artifacts
-node_modules/
-dist/
+# Cargo build artifacts
+target/
 
 # CLI outputs
 bin/
-
-# Downloaded archives
 rain-orderbook-cli.tar.gz
 
-# Editor settings
+# Local artifacts
 .DS_Store
-
 .env
-
-rust/target
