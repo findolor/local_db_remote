@@ -56,25 +56,8 @@ describe("runSync integration", () => {
 
   it("coordinates sync with stubbed external tools", async () => {
     const http: HttpClient = {
-      fetchText: vi.fn(async (url: string) => {
-        if (url.endsWith("constants.ts")) {
-          return "export const REMOTE_SETTINGS_URL = 'https://example.com/settings.yaml';";
-        }
-        if (url === "https://example.com/settings.yaml") {
-          return `
-networks:
-  Optimism:
-    chain-id: 10
-    rpcs:
-      - https://rpc.optimism.io
-      - https://rpc.optimism.io
-orderbooks:
-  Optimism:
-    address: 0xoptimism
-    deployment-block: 9000
-`;
-        }
-        throw new Error(`unexpected fetchText for ${url}`);
+      fetchText: vi.fn(async () => {
+        throw new Error("unexpected fetchText call");
       }),
       fetchBinary: vi.fn(async () => Buffer.from("fake-tar")),
     };
@@ -148,7 +131,7 @@ orderbooks:
     await expect(stat(finalDump)).resolves.toMatchObject({ size: expect.any(Number) });
     await expect(access(join(tempDir, "data", "Optimism.db"))).rejects.toThrow();
 
-    expect(http.fetchText).toHaveBeenCalledTimes(2);
+    expect(http.fetchText).not.toHaveBeenCalled();
     expect(http.fetchBinary).toHaveBeenCalledWith(
       "https://raw.githubusercontent.com/rainlanguage/rain.orderbook/feedface/crates/cli/bin/rain-orderbook-cli.tar.gz",
     );
@@ -158,8 +141,18 @@ orderbooks:
     );
     expect(cliCall).toBeTruthy();
     const cliArgs = cliCall?.[1] as string[];
-    const rpcOccurrences = cliArgs.filter((arg) => arg === "--rpc").length;
-    expect(rpcOccurrences).toBe(1);
+    expect(cliArgs).toEqual(
+      expect.arrayContaining([
+        "--db-path",
+        join(tempDir, "data", "Optimism.db"),
+        "--network",
+        "Optimism",
+        "--config-commit",
+        "feedface",
+        "--api-token",
+        "token",
+      ]),
+    );
     expect(sqliteResponses).toHaveLength(0);
   });
 });

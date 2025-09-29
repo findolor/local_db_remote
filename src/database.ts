@@ -2,15 +2,13 @@ import { spawnSync } from "child_process";
 import { promises as fs } from "fs";
 import { basename, dirname, join } from "path";
 
-import type { OrderbookConfig } from "./settings";
-
 let sqliteWarningEmitted = false;
 
 export interface SyncPlan {
   dbPath: string;
   dumpPath: string;
   lastSyncedBlock: number | null;
-  startBlock: number;
+  nextStartBlock: number | null;
 }
 
 export async function prepareDatabase(
@@ -80,21 +78,15 @@ export async function finalizeDatabase(
   await fs.unlink(dbPath).catch(() => undefined);
 }
 
-export async function planSync(
-  config: OrderbookConfig,
-  dbPath: string,
-  dumpPath: string,
-): Promise<SyncPlan> {
+export async function planSync(dbPath: string, dumpPath: string): Promise<SyncPlan> {
   const lastSyncedBlock = await getLastSyncedBlock(dbPath);
-  const startCandidate =
-    lastSyncedBlock !== null ? lastSyncedBlock + 1 : config.deploymentBlock;
-  const startBlock = Math.max(config.deploymentBlock, startCandidate);
+  const nextStartBlock = lastSyncedBlock !== null ? lastSyncedBlock + 1 : null;
 
   return {
     dbPath,
     dumpPath,
     lastSyncedBlock,
-    startBlock,
+    nextStartBlock,
   };
 }
 

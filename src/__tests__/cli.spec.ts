@@ -7,17 +7,16 @@ vi.mock("child_process", () => ({
 
 import { spawnSync } from "child_process";
 
-import { runCliSync } from "../cli";
-import type { OrderbookConfig } from "../settings";
+import { runCliSync, type RunCliSyncOptions } from "../cli";
 
 const spawnSyncMock = vi.mocked(spawnSync);
 
-const baseConfig: OrderbookConfig = {
+const baseOptions: RunCliSyncOptions = {
+  cliBinary: "/bin/rain",
   network: "optimism",
-  chainId: 10,
-  orderbookAddress: "0xorderbook",
-  deploymentBlock: 1000,
-  rpcs: ["https://rpc.optimism.io", "https://rpc.optimism.io"],
+  dbPath: "/tmp/db.sqlite",
+  apiToken: "token-123",
+  configCommit: "deadbeef",
 };
 
 beforeEach(() => {
@@ -29,11 +28,11 @@ afterEach(() => {
 });
 
 describe("runCliSync", () => {
-  it("spawns the CLI with deduplicated RPCs", async () => {
+  it("spawns the CLI with config commit and network", async () => {
     const mkdirSpy = vi.spyOn(fs, "mkdir").mockResolvedValue(undefined);
     spawnSyncMock.mockReturnValue({ status: 0 } as unknown as ReturnType<typeof spawnSync>);
 
-    await runCliSync("/bin/rain", baseConfig, "/tmp/db.sqlite", "token-123");
+    await runCliSync(baseOptions);
 
     expect(mkdirSpy).toHaveBeenCalledWith("/tmp", { recursive: true });
     expect(spawnSyncMock).toHaveBeenCalledWith(
@@ -43,16 +42,12 @@ describe("runCliSync", () => {
         "sync",
         "--db-path",
         "/tmp/db.sqlite",
-        "--chain-id",
-        "10",
-        "--orderbook-address",
-        "0xorderbook",
-        "--deployment-block",
-        "1000",
+        "--network",
+        "optimism",
+        "--config-commit",
+        "deadbeef",
         "--api-token",
         "token-123",
-        "--rpc",
-        "https://rpc.optimism.io",
       ],
       { stdio: "inherit" },
     );
@@ -60,8 +55,26 @@ describe("runCliSync", () => {
     mkdirSpy.mockRestore();
   });
 
+  it("includes optional start and end blocks when provided", async () => {
+    vi.spyOn(fs, "mkdir").mockResolvedValue(undefined);
+    spawnSyncMock.mockReturnValue({ status: 0 } as unknown as ReturnType<typeof spawnSync>);
+
+    await runCliSync({ ...baseOptions, startBlock: 100, endBlock: 200 });
+
+    expect(spawnSyncMock).toHaveBeenCalledWith(
+      "/bin/rain",
+      expect.arrayContaining([
+        "--start-block",
+        "100",
+        "--end-block",
+        "200",
+      ]),
+      { stdio: "inherit" },
+    );
+  });
+
   it("throws when API token is missing", async () => {
-    await expect(runCliSync("/bin/rain", baseConfig, "/tmp/db.sqlite", null)).rejects.toThrow(
+    await expect(runCliSync({ ...baseOptions, apiToken: null })).rejects.toThrow(
       "No API token provided",
     );
   });
@@ -70,16 +83,6 @@ describe("runCliSync", () => {
     vi.spyOn(fs, "mkdir").mockResolvedValue(undefined);
     spawnSyncMock.mockReturnValue({ status: 1 } as unknown as ReturnType<typeof spawnSync>);
 
-    await expect(
-      runCliSync("/bin/rain", baseConfig, "/tmp/db.sqlite", "token-123"),
-    ).rejects.toThrow("CLI sync failed");
-  });
-
-  it("throws when no RPC endpoints are configured", async () => {
-    const configWithoutRpcs: OrderbookConfig = { ...baseConfig, rpcs: [] };
-
-    await expect(
-      runCliSync("/bin/rain", configWithoutRpcs, "/tmp/db.sqlite", "token-123"),
-    ).rejects.toThrow("No RPC URLs configured for optimism");
+    await expect(runCliSync(baseOptions)).rejects.toThrow("CLI sync failed");
   });
 });

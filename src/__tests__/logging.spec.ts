@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { colorText, logBlock, logPlan } from "../logging";
-import type { OrderbookConfig } from "../settings";
 import type { SyncPlan } from "../database";
 
 beforeEach(() => {
@@ -35,29 +34,21 @@ describe("logBlock", () => {
 });
 
 describe("logPlan", () => {
-  it("logs key plan details including RPC endpoints", () => {
-    const config: OrderbookConfig = {
-      network: "optimism",
-      chainId: 10,
-      orderbookAddress: "0xorderbook",
-      deploymentBlock: 1000,
-      rpcs: ["https://rpc.optimism.io"],
-    };
+  it("logs the basic plan details", () => {
     const plan: SyncPlan = {
       dbPath: "/tmp/optimism.db",
       dumpPath: "/tmp/optimism.db.tar.gz",
       lastSyncedBlock: 900,
-      startBlock: 901,
+      nextStartBlock: 901,
     };
 
-    logPlan(config, plan);
+    logPlan("optimism", plan);
 
     const logs = (console.log as unknown as vi.Mock).mock.calls
       .flat()
       .map((line) => String(line));
 
     expect(logs.some((line) => line.includes("Plan for optimism"))).toBe(true);
-    expect(logs.some((line) => line.includes("0xorderbook"))).toBe(true);
-    expect(logs.some((line) => line.includes("RPC[1]"))).toBe(true);
+    expect(logs.some((line) => line.includes("Next start block"))).toBe(true);
   });
 });

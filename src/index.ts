@@ -3,16 +3,10 @@ import { resolve } from "path";
 
 import { downloadCliArchive, extractCliBinary } from "./archive";
 import { runCliSync } from "./cli";
-import {
-  API_TOKEN_ENV_VARS,
-  CLI_ARCHIVE_NAME,
-  CONSTANTS_URL_TEMPLATE,
-  DEFAULT_COMMIT_HASH,
-} from "./constants";
+import { API_TOKEN_ENV_VARS, CLI_ARCHIVE_NAME, DEFAULT_COMMIT_HASH } from "./constants";
 import { defaultHttpClient, type HttpClient } from "./http";
 import { logPlan } from "./logging";
 import { parseArgs, printUsage } from "./options";
-import { buildOrderbookConfigs, extractSettingsUrl, parseSettingsYaml } from "./settings";
 import { finalizeDatabase, planSync, prepareDatabase } from "./database";
 
 export interface SyncRuntime {
@@ -50,13 +44,6 @@ export async function runSync(partialRuntime: Partial<SyncRuntime> = {}): Promis
   }
   console.log(`Using commit hash ${commitHash}`);
 
-  const constantsUrl = CONSTANTS_URL_TEMPLATE.replace("{commit}", commitHash);
-  console.log(`Fetching constants from ${constantsUrl}`);
-  const constantsSource = await runtime.http.fetchText(constantsUrl);
-  const settingsUrl = extractSettingsUrl(constantsSource);
-  console.log(`Fetching settings from ${settingsUrl}`);
-  const settingsYaml = await runtime.http.fetchText(settingsUrl);
-
   const archivePath = resolve(runtime.cwd(), CLI_ARCHIVE_NAME);
   await downloadCliArchive(runtime.http, commitHash, archivePath);
   const cliDir = resolve(runtime.cwd(), options.cliDir);
@@ -64,13 +51,6 @@ export async function runSync(partialRuntime: Partial<SyncRuntime> = {}): Promis
 
   if (!options.keepArchive) {
     await fs.unlink(archivePath).catch(() => undefined);
-  }
-
-  const parsedSettings = parseSettingsYaml(settingsYaml);
-  const configs = buildOrderbookConfigs(parsedSettings, options.networks);
-  if (configs.length === 0) {
-    console.log("No orderbook configurations matched the selection.");
-    return;
   }
 
   const apiToken = resolveApiToken(runtime.env);
@@ -82,13 +62,26 @@ export async function runSync(partialRuntime: Partial<SyncRuntime> = {}): Promis
   const dbDir = resolve(runtime.cwd(), options.dbDir);
   await fs.mkdir(dbDir, { recursive: true });
 
-  for (const config of configs) {
-    const { dbPath, dumpPath } = await prepareDatabase(config.network, dbDir);
+  const networks = await resolveNetworks(options.networks, dbDir);
+  if (networks.length === 0) {
+    console.log("No networks selected. Provide --networks or ensure dumps exist in the data directory.");
+    return;
+  }
+
+  for (const network of networks) {
+    const { dbPath, dumpPath } = await prepareDatabase(network, dbDir);
     try {
-      const plan = await planSync(config, dbPath, dumpPath);
-      logPlan(config, plan);
-      await runCliSync(cliBinary, config, dbPath, apiToken);
-      await finalizeDatabase(config.network, dbPath, dumpPath);
+      const plan = await planSync(dbPath, dumpPath);
+      logPlan(network, plan);
+      await runCliSync({
+        cliBinary,
+        network,
+        dbPath,
+        apiToken,
+        configCommit: commitHash,
+        startBlock: plan.nextStartBlock ?? undefined,
+      });
+      await finalizeDatabase(network, dbPath, dumpPath);
     } finally {
       await fs.unlink(dbPath).catch(() => undefined);
     }
@@ -118,6 +111,28 @@ function resolveApiToken(env: NodeJS.ProcessEnv): string | null {
     }
   }
   return null;
+}
+
+async function resolveNetworks(selected: string[], dbDir: string): Promise<string[]> {
+  if (selected.length > 0) {
+    return Array.from(
+      new Set(
+        selected
+          .map((name) => name.trim())
+          .filter((name) => name.length > 0),
+      ),
+    );
+  }
+
+  const entries = await fs.readdir(dbDir).catch(() => [] as string[]);
+  return Array.from(
+    new Set(
+      entries
+        .filter((name) => name.endsWith(".db.tar.gz"))
+        .map((name) => name.replace(/\.db\.tar\.gz$/, ""))
+        .filter((name) => name.length > 0),
+    ),
+  );
 }
 
 if (require.main === module) {

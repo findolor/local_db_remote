@@ -1,7 +1,5 @@
 export const DEFAULT_COMMIT_HASH = "3355912bf0052a7514ffb462e4a6655afb94347f";
 export const CLI_ARCHIVE_NAME = "rain-orderbook-cli.tar.gz";
-export const CONSTANTS_URL_TEMPLATE =
-  "https://raw.githubusercontent.com/rainlanguage/rain.orderbook/{commit}/packages/webapp/src/lib/constants.ts";
 export const CLI_ARCHIVE_URL_TEMPLATE =
   "https://raw.githubusercontent.com/rainlanguage/rain.orderbook/{commit}/crates/cli/bin/rain-orderbook-cli.tar.gz";
 
