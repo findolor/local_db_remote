@@ -1,0 +1,18 @@
+[package]
+name = "rain_local_db_sync"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0"
+chrono = { version = "0.4", features = ["clock"] }
+num-format = "0.4"
+reqwest = { version = "0.12", features = ["blocking", "rustls-tls"] }
+walkdir = "2.5"
+
+[features]
+default = []
+
+[dev-dependencies]
+httptest = "0.15"
+tempfile = "3.10"
