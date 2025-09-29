@@ -14,6 +14,8 @@
         packages = rainix.packages.${system};
 
         devShells.default = pkgs.mkShell {
+          shellHook = rainix.devShells.${system}.default.shellHook;
+          inputsFrom = [ rainix.devShells.${system}.default ];
           buildInputs = with pkgs; [
             cargo
             rustc
