@@ -1,7 +1,7 @@
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::{Context, Result};
@@ -16,10 +16,20 @@ pub struct SyncPlan {
 
 pub fn prepare_database(db_stem: &str, db_dir: &Path) -> Result<(PathBuf, PathBuf)> {
     let db_path = db_dir.join(format!("{db_stem}.db"));
-    let dump_path = db_dir.join(format!("{db_stem}.db.tar.gz"));
+    let dump_path = db_dir.join(format!("{db_stem}.sql.tar.gz"));
 
     fs::create_dir_all(db_dir)
         .with_context(|| format!("failed to create database directory {}", db_dir.display()))?;
+
+    let staging_sql_path = db_dir.join(format!("{db_stem}.sql"));
+    if path_exists(&staging_sql_path)? {
+        fs::remove_file(&staging_sql_path).with_context(|| {
+            format!(
+                "failed to remove stale sql dump {}",
+                staging_sql_path.display()
+            )
+        })?;
+    }
 
     if path_exists(&db_path)? {
         fs::remove_file(&db_path)
@@ -46,6 +56,24 @@ pub fn prepare_database(db_stem: &str, db_dir: &Path) -> Result<(PathBuf, PathBu
                 status.code()
             );
         }
+
+        let sql_path = staging_sql_path;
+        if !path_exists(&sql_path)? {
+            anyhow::bail!(
+                "extracted dump for {} did not contain {}.sql",
+                db_stem,
+                db_stem
+            );
+        }
+
+        if let Err(error) = load_sql_dump(&sql_path, &db_path, db_stem) {
+            let _ = fs::remove_file(&sql_path);
+            return Err(error);
+        }
+
+        fs::remove_file(&sql_path).with_context(|| {
+            format!("failed to remove extracted sql dump {}", sql_path.display())
+        })?;
     } else {
         println!(
             "No existing dump for {}; CLI will initialize a new database.",
@@ -65,7 +93,10 @@ pub fn finalize_database(db_stem: &str, db_path: &Path, dump_path: &Path) -> Res
         return Ok(());
     }
 
-    let temp_dump_path = dump_path.with_extension("db.tar.gz.tmp");
+    let sql_path = db_path.with_extension("sql");
+    export_sql_dump(db_path, &sql_path, db_stem)?;
+
+    let temp_dump_path = temporary_dump_path(dump_path)?;
     println!(
         "Archiving database for {} to {}",
         db_stem,
@@ -76,14 +107,14 @@ pub fn finalize_database(db_stem: &str, db_path: &Path, dump_path: &Path) -> Res
         .arg(&temp_dump_path)
         .arg("-C")
         .arg(
-            db_path
+            sql_path
                 .parent()
-                .ok_or_else(|| anyhow::anyhow!("database path has no parent"))?,
+                .ok_or_else(|| anyhow::anyhow!("sql dump path has no parent"))?,
         )
         .arg(
-            db_path
+            sql_path
                 .file_name()
-                .ok_or_else(|| anyhow::anyhow!("database path has no filename"))?,
+                .ok_or_else(|| anyhow::anyhow!("sql dump path has no filename"))?,
         )
         .status()
         .with_context(|| "failed to spawn tar for archiving")?;
@@ -92,6 +123,7 @@ pub fn finalize_database(db_stem: &str, db_path: &Path, dump_path: &Path) -> Res
         if path_exists(&temp_dump_path)? {
             let _ = fs::remove_file(&temp_dump_path);
         }
+        let _ = fs::remove_file(&sql_path);
         anyhow::bail!(
             "failed to archive database for {} (exit code {:?})",
             db_stem,
@@ -110,6 +142,8 @@ pub fn finalize_database(db_stem: &str, db_path: &Path, dump_path: &Path) -> Res
             dump_path.display()
         )
     })?;
+    fs::remove_file(&sql_path)
+        .with_context(|| format!("failed to remove sql dump {}", sql_path.display()))?;
     fs::remove_file(db_path)
         .with_context(|| format!("failed to remove working db {}", db_path.display()))?;
     Ok(())
@@ -125,6 +159,74 @@ pub fn plan_sync(db_path: &Path, dump_path: &Path) -> Result<SyncPlan> {
         last_synced_block,
         next_start_block,
     })
+}
+
+fn load_sql_dump(sql_path: &Path, db_path: &Path, db_stem: &str) -> Result<()> {
+    let sql_file = fs::File::open(sql_path).with_context(|| {
+        format!(
+            "failed to open sql dump {} while preparing {}",
+            sql_path.display(),
+            db_stem
+        )
+    })?;
+
+    let status = Command::new("sqlite3")
+        .arg(db_path)
+        .stdin(Stdio::from(sql_file))
+        .status()
+        .with_context(|| format!("failed to spawn sqlite3 to import {db_stem}"))?;
+
+    if !status.success() {
+        let _ = fs::remove_file(db_path);
+        anyhow::bail!(
+            "sqlite3 import for {} failed with exit code {:?}",
+            db_stem,
+            status.code()
+        );
+    }
+
+    Ok(())
+}
+
+fn export_sql_dump(db_path: &Path, sql_path: &Path, db_stem: &str) -> Result<()> {
+    if path_exists(sql_path)? {
+        fs::remove_file(sql_path)
+            .with_context(|| format!("failed to remove stale sql dump {}", sql_path.display()))?;
+    }
+
+    let sql_file = fs::File::create(sql_path).with_context(|| {
+        format!(
+            "failed to create sql dump {} for {}",
+            sql_path.display(),
+            db_stem
+        )
+    })?;
+
+    let status = Command::new("sqlite3")
+        .arg(db_path)
+        .arg(".dump")
+        .stdout(Stdio::from(sql_file))
+        .status()
+        .with_context(|| format!("failed to spawn sqlite3 to export {db_stem}"))?;
+
+    if !status.success() {
+        let _ = fs::remove_file(sql_path);
+        anyhow::bail!(
+            "sqlite3 export for {} failed with exit code {:?}",
+            db_stem,
+            status.code()
+        );
+    }
+
+    Ok(())
+}
+
+fn temporary_dump_path(dump_path: &Path) -> Result<PathBuf> {
+    let file_name = dump_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| anyhow::anyhow!("dump path has no filename"))?;
+    Ok(dump_path.with_file_name(format!("{file_name}.tmp")))
 }
 
 fn get_last_synced_block(db_path: &Path) -> Result<Option<u64>> {
@@ -254,32 +356,77 @@ mod tests {
         let (db, dump) = prepare_database("orderbook", dir.path()).unwrap();
 
         assert_eq!(db, dir.path().join("orderbook.db"));
-        assert_eq!(dump, dir.path().join("orderbook.db.tar.gz"));
+        assert_eq!(dump, dir.path().join("orderbook.sql.tar.gz"));
         assert!(!db.exists());
     }
 
     #[test]
     fn prepare_database_extracts_existing_dump() {
         let dir = tempdir().unwrap();
-        let dump_path = dir.path().join("orderbook.db.tar.gz");
+        let dump_path = dir.path().join("orderbook.sql.tar.gz");
 
         let staging = tempdir().unwrap();
-        let db_file = staging.path().join("orderbook.db");
-        std::fs::write(&db_file, b"contents").unwrap();
+        let sql_file = staging.path().join("orderbook.sql");
+        std::fs::write(&sql_file, b"CREATE TABLE stub;\n").unwrap();
         let status = Command::new("tar")
             .arg("-czf")
             .arg(&dump_path)
             .arg("-C")
             .arg(staging.path())
-            .arg(".")
+            .arg("orderbook.sql")
             .status()
             .unwrap();
         assert!(status.success());
 
+        let _guard = path_mutex().lock().unwrap();
+        let bin_dir = tempdir().unwrap();
+        let sqlite_bin = bin_dir.path().join("sqlite3");
+        std::fs::write(
+            &sqlite_bin,
+            r#"#!/bin/sh
+if [ "$2" = ".dump" ]; then
+  if [ -n "$SQLITE_STUB_DUMP_PATH" ]; then
+    cat "$SQLITE_STUB_DUMP_PATH"
+  else
+    echo "-- stub dump"
+  fi
+  exit 0
+fi
+cat > "$1"
+"#,
+        )
+        .unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = std::fs::metadata(&sqlite_bin).unwrap().permissions();
+            perms.set_mode(0o755);
+            std::fs::set_permissions(&sqlite_bin, perms).unwrap();
+        }
+
+        let original_path = std::env::var_os("PATH");
+        let new_path = match original_path.as_ref() {
+            Some(value) => {
+                let mut combined = bin_dir.path().as_os_str().to_os_string();
+                combined.push(":");
+                combined.push(value);
+                combined
+            }
+            None => bin_dir.path().as_os_str().to_os_string(),
+        };
+        std::env::set_var("PATH", &new_path);
+
         let (db_path, _) = prepare_database("orderbook", dir.path()).unwrap();
+
+        match original_path {
+            Some(value) => std::env::set_var("PATH", value),
+            None => std::env::remove_var("PATH"),
+        }
+
         assert!(db_path.exists());
         let restored = std::fs::read(&db_path).unwrap();
-        assert_eq!(restored, b"contents");
+        let expected = std::fs::read(&sql_file).unwrap();
+        assert_eq!(restored, expected);
     }
 
     #[test]
@@ -287,26 +434,80 @@ mod tests {
         let dir = tempdir().unwrap();
         let db_path = dir.path().join("orderbook.db");
         std::fs::write(&db_path, b"data").unwrap();
-        let dump_path = dir.path().join("orderbook.db.tar.gz");
+        let dump_path = dir.path().join("orderbook.sql.tar.gz");
         std::fs::write(&dump_path, b"old").unwrap();
+
+        let _guard = path_mutex().lock().unwrap();
+        let bin_dir = tempdir().unwrap();
+        let sqlite_bin = bin_dir.path().join("sqlite3");
+        let dump_contents = dir.path().join("dump.sql");
+        std::fs::write(&dump_contents, b"-- exported\n").unwrap();
+        std::fs::write(
+            &sqlite_bin,
+            r#"#!/bin/sh
+if [ "$2" = ".dump" ]; then
+  if [ -n "$SQLITE_STUB_DUMP_PATH" ]; then
+    cat "$SQLITE_STUB_DUMP_PATH"
+  else
+    echo "-- stub dump"
+  fi
+  exit 0
+fi
+cat > "$1"
+"#,
+        )
+        .unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = std::fs::metadata(&sqlite_bin).unwrap().permissions();
+            perms.set_mode(0o755);
+            std::fs::set_permissions(&sqlite_bin, perms).unwrap();
+        }
+
+        let original_path = std::env::var_os("PATH");
+        let new_path = match original_path.as_ref() {
+            Some(value) => {
+                let mut combined = bin_dir.path().as_os_str().to_os_string();
+                combined.push(":");
+                combined.push(value);
+                combined
+            }
+            None => bin_dir.path().as_os_str().to_os_string(),
+        };
+        std::env::set_var("PATH", &new_path);
+        std::env::set_var("SQLITE_STUB_DUMP_PATH", &dump_contents);
 
         finalize_database("orderbook", &db_path, &dump_path).unwrap();
 
+        match original_path {
+            Some(value) => std::env::set_var("PATH", value),
+            None => std::env::remove_var("PATH"),
+        }
+        std::env::remove_var("SQLITE_STUB_DUMP_PATH");
+
         assert!(!db_path.exists());
         assert!(dump_path.exists());
+        let extract = tempdir().unwrap();
         let status = Command::new("tar")
-            .arg("-tzf")
+            .arg("-xzf")
             .arg(&dump_path)
+            .arg("-C")
+            .arg(extract.path())
             .status()
             .unwrap();
         assert!(status.success());
+        let extracted_sql = extract.path().join("orderbook.sql");
+        let content = std::fs::read(&extracted_sql).unwrap();
+        assert_eq!(content, b"-- exported\n");
+        assert!(!db_path.exists());
     }
 
     #[test]
     fn finalize_database_skips_when_db_missing() {
         let dir = tempdir().unwrap();
         let db_path = dir.path().join("missing.db");
-        let dump_path = dir.path().join("missing.db.tar.gz");
+        let dump_path = dir.path().join("missing.sql.tar.gz");
 
         finalize_database("missing", &db_path, &dump_path).unwrap();
         assert!(!dump_path.exists());
@@ -316,7 +517,7 @@ mod tests {
     fn plan_sync_without_existing_db_reports_none() {
         let dir = tempdir().unwrap();
         let db_path = dir.path().join("orderbook.db");
-        let dump_path = dir.path().join("orderbook.db.tar.gz");
+        let dump_path = dir.path().join("orderbook.sql.tar.gz");
 
         let plan = plan_sync(&db_path, &dump_path).unwrap();
         assert!(plan.last_synced_block.is_none());
@@ -332,7 +533,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let db_path = dir.path().join("orderbook.db");
         std::fs::write(&db_path, b"db").unwrap();
-        let dump_path = dir.path().join("orderbook.db.tar.gz");
+        let dump_path = dir.path().join("orderbook.sql.tar.gz");
 
         let bin_dir = tempdir().unwrap();
         let sqlite_bin = bin_dir.path().join("sqlite3");
