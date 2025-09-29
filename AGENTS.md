@@ -16,7 +16,7 @@ TypeScript files use 2-space indentation, `camelCase` for values, and `PascalCas
 There is no automated suite yet. Validate behaviour by running `nix develop -c npm run sync` against representative dumps and inspecting the console plan output. When adding tests, colocate them under `src/__tests__/`, name files `*.spec.ts`, and cover configuration loading, filesystem behaviour, and process orchestration via mocks.
 
 ## Commit & Pull Request Guidelines
-With no prior history, adopt Conventional Commit prefixes (`feat:`, `fix:`, `chore:`) to keep logs searchable. Pull requests should summarize intent, list affected networks or data directories, and mention required environment variables (`HYPERLANE_API_TOKEN`, `RAIN_ORDERBOOK_API_TOKEN`, etc.). Attach relevant sync logs when they demonstrate behavioural changes.
+With no prior history, adopt Conventional Commit prefixes (`feat:`, `fix:`, `chore:`) to keep logs searchable. Pull requests should summarize intent, list affected networks or data directories, and mention required environment variables (`HYPERRPC_API_TOKEN`, `RAIN_ORDERBOOK_API_TOKEN`, etc.). Attach relevant sync logs when they demonstrate behavioural changes.
 
 ## Environment Notes
 Consult `src/sync.ts` for the authoritative list of tokens and the default CLI commit hash. Keep secrets outside the repo and export them into your Nix shell before syncing. Avoid committing local SQLite artifacts; tarball dumps in `data/` are canonical outputs.

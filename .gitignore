@@ -12,3 +12,5 @@ rain-orderbook-cli.tar.gz
 .DS_Store
 
 .env
+
+rust/target

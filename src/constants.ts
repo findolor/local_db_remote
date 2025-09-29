@@ -4,7 +4,6 @@ export const CLI_ARCHIVE_URL_TEMPLATE =
   "https://raw.githubusercontent.com/rainlanguage/rain.orderbook/{commit}/crates/cli/bin/rain-orderbook-cli.tar.gz";
 
 export const API_TOKEN_ENV_VARS = [
-  "HYPERLANE_API_TOKEN",
   "RAIN_API_TOKEN",
   "RAIN_ORDERBOOK_API_TOKEN",
   "HYPERRPC_API_TOKEN",
