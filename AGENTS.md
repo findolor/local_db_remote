@@ -16,7 +16,10 @@ Use Rust's standard formatting (`cargo fmt`) with 4-space indentation and idioma
 Unit tests live alongside the modules they exercise under `src/`. Run `cargo test` inside the dev shell to validate behaviour, covering filesystem orchestration, CLI invocation, and network helpers via mocks or stubs.
 
 ## Commit & Pull Request Guidelines
-With no prior history, adopt Conventional Commit prefixes (`feat:`, `fix:`, `chore:`) to keep logs searchable. Pull requests should summarize intent, list affected networks or data directories, and mention required environment variables (`HYPERRPC_API_TOKEN`, `RAIN_ORDERBOOK_API_TOKEN`, etc.). Attach relevant sync logs when they demonstrate behavioural changes.
+With no prior history, adopt Conventional Commit prefixes (`feat:`, `fix:`, `chore:`) to keep logs searchable. Pull requests should summarize intent, list affected networks or data directories, and mention required environment variables (`COMMIT_HASH`, `HYPERRPC_API_TOKEN`, etc.). Attach relevant sync logs when they demonstrate behavioural changes.
 
 ## Environment Notes
 Consult `src/sync.rs` for the authoritative list of tokens and the default CLI commit hash. Keep secrets outside the repo and export them into your Nix shell before syncing. Avoid committing local SQLite artifacts; tarball dumps in `data/` remain the canonical outputs.
+
+## CI Automation
+The `Remote Sync` GitHub Actions workflow (`.github/workflows/remote-sync.yml`) runs `cargo run --release` from within `nix develop` every 10 minutes and can also be triggered manually. It installs Nix via Determinate Systems' installer and reuses the FlakeHub cache action. Configure the `COMMIT_HASH` and `HYPERRPC_API_TOKEN` repository secrets so the workflow can resolve the CLI commit and authenticate remote calls; the sync code also accepts alternative token names listed in `API_TOKEN_ENV_VARS` if you add more secrets later. Concurrency is configured so only one sync runs at a time—the next scheduled job waits until the active run finishes. When the workflow detects changes under `data/*.sql.gz` on the default branch, it configures Git using the `CI_GIT_USER` and `CI_GIT_EMAIL` secrets, commits the updates with a `chore: update orderbook dump` message, and pushes them back using the workflow token.
