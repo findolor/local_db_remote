@@ -12,9 +12,6 @@ use crate::database::{finalize_database, plan_sync, prepare_database};
 use crate::http::{DefaultHttpClient, HttpClient};
 use crate::logging::log_plan;
 
-const ORDERBOOK_DB_FILE_STEM: &str = "orderbook";
-const ORDERBOOK_LABEL: &str = "Arbitrum";
-
 #[derive(Clone, Debug)]
 pub struct SyncConfig {
     pub db_dir: PathBuf,
@@ -132,7 +129,9 @@ pub fn run_sync_with(runtime: SyncRuntime, config: SyncConfig) -> Result<()> {
         primary_db_dir
     };
 
-    let (db_path, dump_path) = prepare_database(ORDERBOOK_DB_FILE_STEM, &db_dir)?;
+    let file_stem = config.chain_id.to_string();
+    let file_stem_ref = file_stem.as_str();
+    let (db_path, dump_path) = prepare_database(file_stem_ref, &db_dir)?;
     let result = (|| -> Result<()> {
         let plan = plan_sync(&db_path, &dump_path)?;
         let plan_label = format!("chain {}", config.chain_id);
@@ -148,15 +147,12 @@ pub fn run_sync_with(runtime: SyncRuntime, config: SyncConfig) -> Result<()> {
             end_block: None,
         })?;
 
-        finalize_database(ORDERBOOK_DB_FILE_STEM, &db_path, &dump_path)?;
+        finalize_database(file_stem_ref, &db_path, &dump_path)?;
         Ok(())
     })();
 
     if let Err(error) = &result {
-        eprintln!(
-            "Sync failed for chain {} ({}): {error:?}",
-            config.chain_id, ORDERBOOK_LABEL
-        );
+        eprintln!("Sync failed for chain {}: {error:?}", config.chain_id);
     }
 
     if db_path.exists() {
