@@ -16,7 +16,7 @@ pub struct SyncPlan {
 
 pub fn prepare_database(db_stem: &str, db_dir: &Path) -> Result<(PathBuf, PathBuf)> {
     let db_path = db_dir.join(format!("{db_stem}.db"));
-    let dump_path = db_dir.join(format!("{db_stem}.sql.tar.gz"));
+    let dump_path = db_dir.join(format!("{db_stem}.sql.gz"));
 
     fs::create_dir_all(db_dir)
         .with_context(|| format!("failed to create database directory {}", db_dir.display()))?;
@@ -42,37 +42,39 @@ pub fn prepare_database(db_stem: &str, db_dir: &Path) -> Result<(PathBuf, PathBu
             db_stem,
             dump_path.display()
         );
-        let status = Command::new("tar")
-            .arg("-xzf")
+        let output = Command::new("gzip")
+            .arg("-dc")
             .arg(&dump_path)
-            .arg("-C")
-            .arg(db_dir)
-            .status()
-            .with_context(|| "failed to spawn tar for dump extraction")?;
-        if !status.success() {
+            .output()
+            .with_context(|| {
+                format!("failed to spawn gzip to decompress {}", dump_path.display())
+            })?;
+
+        if !output.status.success() {
             anyhow::bail!(
-                "failed to extract dump for {} (exit code {:?})",
+                "failed to decompress sql dump for {} (exit code {:?})",
                 db_stem,
-                status.code()
+                output.status.code()
             );
         }
 
-        let sql_path = staging_sql_path;
-        if !path_exists(&sql_path)? {
-            anyhow::bail!(
-                "extracted dump for {} did not contain {}.sql",
-                db_stem,
-                db_stem
-            );
-        }
+        fs::write(&staging_sql_path, &output.stdout).with_context(|| {
+            format!(
+                "failed to write staging sql dump {}",
+                staging_sql_path.display()
+            )
+        })?;
 
-        if let Err(error) = load_sql_dump(&sql_path, &db_path, db_stem) {
-            let _ = fs::remove_file(&sql_path);
+        if let Err(error) = load_sql_dump(&staging_sql_path, &db_path, db_stem) {
+            let _ = fs::remove_file(&staging_sql_path);
             return Err(error);
         }
 
-        fs::remove_file(&sql_path).with_context(|| {
-            format!("failed to remove extracted sql dump {}", sql_path.display())
+        fs::remove_file(&staging_sql_path).with_context(|| {
+            format!(
+                "failed to remove extracted sql dump {}",
+                staging_sql_path.display()
+            )
         })?;
     } else {
         println!(
@@ -102,34 +104,26 @@ pub fn finalize_database(db_stem: &str, db_path: &Path, dump_path: &Path) -> Res
         db_stem,
         dump_path.display()
     );
-    let status = Command::new("tar")
-        .arg("-czf")
-        .arg(&temp_dump_path)
-        .arg("-C")
-        .arg(
-            sql_path
-                .parent()
-                .ok_or_else(|| anyhow::anyhow!("sql dump path has no parent"))?,
-        )
-        .arg(
-            sql_path
-                .file_name()
-                .ok_or_else(|| anyhow::anyhow!("sql dump path has no filename"))?,
-        )
-        .status()
-        .with_context(|| "failed to spawn tar for archiving")?;
+    let output = Command::new("gzip")
+        .arg("-c")
+        .arg(&sql_path)
+        .output()
+        .with_context(|| format!("failed to spawn gzip to compress {}", db_stem))?;
 
-    if !status.success() {
-        if path_exists(&temp_dump_path)? {
-            let _ = fs::remove_file(&temp_dump_path);
-        }
-        let _ = fs::remove_file(&sql_path);
+    if !output.status.success() {
         anyhow::bail!(
-            "failed to archive database for {} (exit code {:?})",
+            "failed to compress sql dump for {} (exit code {:?})",
             db_stem,
-            status.code()
+            output.status.code()
         );
     }
+
+    fs::write(&temp_dump_path, &output.stdout).with_context(|| {
+        format!(
+            "failed to write compressed dump {}",
+            temp_dump_path.display()
+        )
+    })?;
 
     if path_exists(dump_path)? {
         fs::remove_file(dump_path)
@@ -356,27 +350,26 @@ mod tests {
         let (db, dump) = prepare_database("orderbook", dir.path()).unwrap();
 
         assert_eq!(db, dir.path().join("orderbook.db"));
-        assert_eq!(dump, dir.path().join("orderbook.sql.tar.gz"));
+        assert_eq!(dump, dir.path().join("orderbook.sql.gz"));
         assert!(!db.exists());
     }
 
     #[test]
     fn prepare_database_extracts_existing_dump() {
         let dir = tempdir().unwrap();
-        let dump_path = dir.path().join("orderbook.sql.tar.gz");
+        let dump_path = dir.path().join("orderbook.sql.gz");
 
+        let sql_contents = b"CREATE TABLE stub;\n";
         let staging = tempdir().unwrap();
-        let sql_file = staging.path().join("orderbook.sql");
-        std::fs::write(&sql_file, b"CREATE TABLE stub;\n").unwrap();
-        let status = Command::new("tar")
-            .arg("-czf")
-            .arg(&dump_path)
-            .arg("-C")
-            .arg(staging.path())
-            .arg("orderbook.sql")
-            .status()
+        let sql_path = staging.path().join("orderbook.sql");
+        std::fs::write(&sql_path, sql_contents).unwrap();
+        let output = Command::new("gzip")
+            .arg("-c")
+            .arg(&sql_path)
+            .output()
             .unwrap();
-        assert!(status.success());
+        assert!(output.status.success());
+        std::fs::write(&dump_path, &output.stdout).unwrap();
 
         let _guard = path_mutex().lock().unwrap();
         let bin_dir = tempdir().unwrap();
@@ -425,8 +418,7 @@ cat > "$1"
 
         assert!(db_path.exists());
         let restored = std::fs::read(&db_path).unwrap();
-        let expected = std::fs::read(&sql_file).unwrap();
-        assert_eq!(restored, expected);
+        assert_eq!(restored, sql_contents);
     }
 
     #[test]
@@ -434,7 +426,7 @@ cat > "$1"
         let dir = tempdir().unwrap();
         let db_path = dir.path().join("orderbook.db");
         std::fs::write(&db_path, b"data").unwrap();
-        let dump_path = dir.path().join("orderbook.sql.tar.gz");
+        let dump_path = dir.path().join("orderbook.sql.gz");
         std::fs::write(&dump_path, b"old").unwrap();
 
         let _guard = path_mutex().lock().unwrap();
@@ -488,18 +480,13 @@ cat > "$1"
 
         assert!(!db_path.exists());
         assert!(dump_path.exists());
-        let extract = tempdir().unwrap();
-        let status = Command::new("tar")
-            .arg("-xzf")
+        let output = Command::new("gzip")
+            .arg("-dc")
             .arg(&dump_path)
-            .arg("-C")
-            .arg(extract.path())
-            .status()
+            .output()
             .unwrap();
-        assert!(status.success());
-        let extracted_sql = extract.path().join("orderbook.sql");
-        let content = std::fs::read(&extracted_sql).unwrap();
-        assert_eq!(content, b"-- exported\n");
+        assert!(output.status.success());
+        assert_eq!(output.stdout, b"-- exported\n");
         assert!(!db_path.exists());
     }
 
@@ -507,7 +494,7 @@ cat > "$1"
     fn finalize_database_skips_when_db_missing() {
         let dir = tempdir().unwrap();
         let db_path = dir.path().join("missing.db");
-        let dump_path = dir.path().join("missing.sql.tar.gz");
+        let dump_path = dir.path().join("missing.sql.gz");
 
         finalize_database("missing", &db_path, &dump_path).unwrap();
         assert!(!dump_path.exists());
@@ -517,7 +504,7 @@ cat > "$1"
     fn plan_sync_without_existing_db_reports_none() {
         let dir = tempdir().unwrap();
         let db_path = dir.path().join("orderbook.db");
-        let dump_path = dir.path().join("orderbook.sql.tar.gz");
+        let dump_path = dir.path().join("orderbook.sql.gz");
 
         let plan = plan_sync(&db_path, &dump_path).unwrap();
         assert!(plan.last_synced_block.is_none());
@@ -533,7 +520,7 @@ cat > "$1"
         let dir = tempdir().unwrap();
         let db_path = dir.path().join("orderbook.db");
         std::fs::write(&db_path, b"db").unwrap();
-        let dump_path = dir.path().join("orderbook.sql.tar.gz");
+        let dump_path = dir.path().join("orderbook.sql.gz");
 
         let bin_dir = tempdir().unwrap();
         let sqlite_bin = bin_dir.path().join("sqlite3");

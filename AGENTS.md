@@ -1,13 +1,13 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-Rust sources live in `src/`, with `sync.rs` orchestrating remote orderbook syncs into SQLite. The `bin/` directory stores the unpacked `rain-orderbook-cli` binary downloaded at runtime, while `data/` holds compressed SQL snapshots per network (`*.sql.tar.gz`). `Cargo.toml` and `flake.nix` anchor the build configuration and Nix development environment.
+Rust sources live in `src/`, with `sync.rs` orchestrating remote orderbook syncs into SQLite. The `bin/` directory stores the unpacked `rain-orderbook-cli` binary downloaded at runtime, while `data/` holds compressed SQL snapshots per network (`*.sql.gz`). `Cargo.toml` and `flake.nix` anchor the build configuration and Nix development environment.
 
 ## Build, Test, and Development Commands
 Always run commands inside the Nix dev shell to keep the Rust toolchain on PATH. Use `nix develop` for an interactive session, then run `cargo fmt`, `cargo test`, or `cargo run --release`. The release run fetches orderbook data and refreshes the local dumps under `data/`.
 
 ## Sync Workflow & Database Dumps
-Each sync hydrates the working database from the existing SQL tarball, runs the CLI, then re-exports a fresh SQL dump before deleting the temporary `.db`. Only the compressed dump remains. Keep the directory writeable and avoid manual edits to the live `.db`—modify the tarball if you need seeded data. If a dump is missing, the script initializes a fresh database and archives it on completion.
+Each sync hydrates the working database from the existing gzipped SQL dump, runs the CLI, then re-exports a fresh SQL dump before deleting the temporary `.db`. Only the compressed dump remains. Keep the directory writeable and avoid manual edits to the live `.db`—modify the compressed dump if you need seeded data. If a dump is missing, the script initializes a fresh database and archives it on completion.
 
 ## Coding Style & Naming Conventions
 Use Rust's standard formatting (`cargo fmt`) with 4-space indentation and idiomatic ownership patterns. Keep modules focused and prefer pure helpers where practical. Exported APIs should carry explicit types, and fallible paths must return `anyhow::Result` with context.
