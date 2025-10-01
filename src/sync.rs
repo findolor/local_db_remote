@@ -7,10 +7,13 @@ use chrono::Utc;
 
 use crate::archive::{download_cli_archive, extract_cli_binary};
 use crate::cli::{run_cli_sync, RunCliSyncOptions};
-use crate::constants::{API_TOKEN_ENV_VARS, CLI_ARCHIVE_NAME, DEFAULT_COMMIT_HASH};
+use crate::constants::{
+    API_TOKEN_ENV_VARS, CLI_ARCHIVE_NAME, DEFAULT_COMMIT_HASH, RELEASE_DOWNLOAD_URL_TEMPLATE,
+};
 use crate::database::{finalize_database, plan_sync, prepare_database};
 use crate::http::{DefaultHttpClient, HttpClient};
 use crate::logging::log_plan;
+use crate::manifest::update_manifest;
 
 #[derive(Clone, Debug)]
 pub struct SyncConfig {
@@ -161,12 +164,31 @@ pub fn run_sync_with(runtime: SyncRuntime, config: SyncConfig) -> Result<()> {
 
     result?;
 
-    let end_time = Utc::now();
-    let duration = end_time - start_time;
+    let completion_time = Utc::now();
+
+    let dump_file_name = dump_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| anyhow::anyhow!("dump path is missing a valid filename"))?;
+    let download_url = RELEASE_DOWNLOAD_URL_TEMPLATE.replace("{file}", dump_file_name);
+    let manifest_path = db_dir.join("manifest.yaml");
+    update_manifest(
+        &manifest_path,
+        config.chain_id,
+        &download_url,
+        completion_time,
+    )?;
+    println!(
+        "Updated manifest entry for chain {} at {}",
+        config.chain_id,
+        manifest_path.display()
+    );
+
+    let duration = completion_time - start_time;
     let elapsed_seconds = duration.num_milliseconds() as f64 / 1000.0;
     println!(
         "Sync completed at {} (duration: {:.1}s)",
-        end_time.to_rfc3339(),
+        completion_time.to_rfc3339(),
         elapsed_seconds
     );
 
