@@ -1,4 +1,4 @@
-use rain_local_db_sync::run_sync;
+use rain_local_db_remote::run_sync;
 
 fn main() {
     if let Err(error) = run_sync() {
