@@ -1,6 +1,5 @@
 use num_format::{Locale, ToFormattedString};
 
-pub const DEFAULT_COMMIT_HASH: &str = "3355912bf0052a7514ffb462e4a6655afb94347f";
 pub const CLI_ARCHIVE_NAME: &str = "rain-orderbook-cli.tar.gz";
 pub const CLI_ARCHIVE_URL_TEMPLATE: &str = "https://raw.githubusercontent.com/rainlanguage/rain.orderbook/{commit}/crates/cli/bin/rain-orderbook-cli.tar.gz";
 pub const RELEASE_DOWNLOAD_URL_TEMPLATE: &str =

@@ -7,9 +7,7 @@ use chrono::Utc;
 
 use crate::archive::{download_cli_archive, extract_cli_binary};
 use crate::cli::{run_cli_sync, RunCliSyncOptions};
-use crate::constants::{
-    API_TOKEN_ENV_VARS, CLI_ARCHIVE_NAME, DEFAULT_COMMIT_HASH, RELEASE_DOWNLOAD_URL_TEMPLATE,
-};
+use crate::constants::{API_TOKEN_ENV_VARS, CLI_ARCHIVE_NAME, RELEASE_DOWNLOAD_URL_TEMPLATE};
 use crate::database::{finalize_database, plan_sync, prepare_database};
 use crate::http::{DefaultHttpClient, HttpClient};
 use crate::logging::log_plan;
@@ -69,11 +67,9 @@ pub fn run_sync_with(runtime: SyncRuntime, config: SyncConfig) -> Result<()> {
         .get("COMMIT_HASH")
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| DEFAULT_COMMIT_HASH.to_string());
-
-    if commit_hash.trim().is_empty() {
-        anyhow::bail!("COMMIT_HASH must be set to a valid rain.orderbook commit hash");
-    }
+        .ok_or_else(|| {
+            anyhow::anyhow!("COMMIT_HASH must be set to a valid rain.orderbook commit hash")
+        })?;
     println!("Using commit hash {commit_hash}");
 
     let archive_path = runtime.cwd.join(CLI_ARCHIVE_NAME);

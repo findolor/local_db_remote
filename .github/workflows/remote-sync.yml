@@ -8,7 +8,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  COMMIT_HASH: ${{ secrets.COMMIT_HASH }}
+  COMMIT_HASH: ${{ vars.COMMIT_HASH }}
   HYPERRPC_API_TOKEN: ${{ secrets.HYPERRPC_API_TOKEN }}
 
 jobs:
