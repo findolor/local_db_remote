@@ -2,4 +2,4 @@ schema_version: 1
 networks:
   42161:
     dump_url: https://github.com/rainlanguage/rain.local.db.remote/releases/latest/download/42161.sql.gz
-    dump_timestamp: 2025-10-01T08:01:29.109079+00:00
+    dump_timestamp: 2025-10-01T11:38:59.700415+00:00
