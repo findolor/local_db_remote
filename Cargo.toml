@@ -1,5 +1,5 @@
 [package]
-name = "rain_local_db_sync"
+name = "rain_local_db_remote"
 version = "0.1.0"
 edition = "2021"
 
