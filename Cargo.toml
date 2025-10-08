@@ -12,6 +12,14 @@ walkdir = "2.5"
 serde = { version = "1.0", features = ["derive"] }
 serde_yaml = "0.9"
 
+[[bin]]
+name = "bump-schema-version"
+path = "src/workflows/bump-schema-version.rs"
+
+[[bin]]
+name = "bump-seed-generation"
+path = "src/workflows/bump-seed-generation.rs"
+
 [features]
 default = []
 

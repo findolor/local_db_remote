@@ -50,5 +50,5 @@ jobs:
           fi
 
           git add data
-          git commit -m "chore: update orderbook dump"
+          git commit -m "update orderbook dump"
           git push origin "${GITHUB_REF#refs/heads/}"

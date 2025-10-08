@@ -1,0 +1,57 @@
+name: Bump Manifest Schema Version
+
+on:
+  workflow_dispatch:
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Bump schema version
+        id: bump
+        run: |
+          set -euo pipefail
+          OUTPUT=$(nix develop --command cargo run --quiet --bin bump-schema-version)
+          echo "$OUTPUT"
+          PREVIOUS=$(grep '^previous=' <<< "$OUTPUT" | head -n1 | cut -d= -f2)
+          NEXT=$(grep '^next=' <<< "$OUTPUT" | head -n1 | cut -d= -f2)
+          echo "previous=$PREVIOUS" >> "$GITHUB_OUTPUT"
+          echo "next=$NEXT" >> "$GITHUB_OUTPUT"
+
+      - name: Show manifest diff
+        run: git diff
+
+      - name: Configure Git
+        if: github.ref == 'refs/heads/main'
+        env:
+          CI_GIT_USER: ${{ secrets.CI_GIT_USER }}
+          CI_GIT_EMAIL: ${{ secrets.CI_GIT_EMAIL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CI_GIT_USER:-}" ] || [ -z "${CI_GIT_EMAIL:-}" ]; then
+            echo "CI_GIT_USER and CI_GIT_EMAIL secrets must be set to commit." >&2
+            exit 1
+          fi
+          git config user.name "$CI_GIT_USER"
+          git config user.email "$CI_GIT_EMAIL"
+
+      - name: Commit schema bump
+        if: github.ref == 'refs/heads/main'
+        env:
+          NEXT: ${{ steps.bump.outputs.next }}
+        run: |
+          set -euo pipefail
+          if git diff --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+
+          git add data/manifest.yaml src/manifest.rs
+          git commit -m "bump manifest schema version to ${NEXT}"
+          git push origin "${GITHUB_REF#refs/heads/}"
