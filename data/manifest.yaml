@@ -3,4 +3,4 @@ networks:
   42161:
     dump_url: https://github.com/rainlanguage/rain.local.db.remote/releases/latest/download/42161.sql.gz
     dump_timestamp: 2025-10-08T06:22:59.083085375+00:00
-    seed_generation: 1
+    seed_generation: 2
