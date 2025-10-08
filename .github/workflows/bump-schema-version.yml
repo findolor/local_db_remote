@@ -13,6 +13,12 @@ jobs:
         with:
           fetch-depth: 0
 
+      - uses: DeterminateSystems/nix-installer-action@main
+        with:
+          determinate: true
+
+      - uses: DeterminateSystems/flakehub-cache-action@main
+
       - name: Bump schema version
         id: bump
         run: |
