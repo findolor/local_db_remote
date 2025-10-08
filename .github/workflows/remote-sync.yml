@@ -24,6 +24,17 @@ jobs:
         with:
           determinate: true
       - uses: DeterminateSystems/flakehub-cache-action@main
+      - name: Determine release metadata
+        run: |
+          if [ "${GITHUB_REF}" = "refs/heads/main" ]; then
+            tag="sync-${GITHUB_RUN_ID}"
+            echo "RELEASE_TAG=$tag" >> "$GITHUB_ENV"
+            echo "RELEASE_NAME=Remote Sync $tag" >> "$GITHUB_ENV"
+            echo "CREATE_RELEASE=true" >> "$GITHUB_ENV"
+          else
+            echo "CREATE_RELEASE=false" >> "$GITHUB_ENV"
+          fi
+          echo "DATA_CHANGED=false" >> "$GITHUB_ENV"
       - name: Run sync process
         run: nix develop --command cargo run --release
       - name: Configure Git
@@ -45,10 +56,22 @@ jobs:
           set -euo pipefail
           CHANGES=$(git status --porcelain -- data || true)
           if [ -z "$CHANGES" ]; then
-            echo "No dump changes detected; skipping commit.";
+            echo "No dump changes detected; skipping commit."
             exit 0
           fi
+
+          echo "DATA_CHANGED=true" >> "$GITHUB_ENV"
 
           git add data
           git commit -m "update orderbook dump"
           git push origin "${GITHUB_REF#refs/heads/}"
+      - name: Publish release assets
+        if: env.CREATE_RELEASE == 'true' && env.DATA_CHANGED == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: ${{ env.RELEASE_NAME }}
+          target_commitish: ${{ github.sha }}
+          files: |
+            data/manifest.yaml
+            data/*.sql.gz

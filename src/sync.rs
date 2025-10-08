@@ -7,7 +7,10 @@ use chrono::Utc;
 
 use crate::archive::{download_cli_archive, extract_cli_binary};
 use crate::cli::{run_cli_sync, RunCliSyncOptions};
-use crate::constants::{API_TOKEN_ENV_VARS, CLI_ARCHIVE_NAME, RELEASE_DOWNLOAD_URL_TEMPLATE};
+use crate::constants::{
+    API_TOKEN_ENV_VARS, CLI_ARCHIVE_NAME, RELEASE_DOWNLOAD_URL_BY_TAG_TEMPLATE,
+    RELEASE_DOWNLOAD_URL_TEMPLATE,
+};
 use crate::database::{finalize_database, plan_sync, prepare_database};
 use crate::http::{DefaultHttpClient, HttpClient};
 use crate::logging::log_plan;
@@ -166,7 +169,8 @@ pub fn run_sync_with(runtime: SyncRuntime, config: SyncConfig) -> Result<()> {
         .file_name()
         .and_then(|name| name.to_str())
         .ok_or_else(|| anyhow::anyhow!("dump path is missing a valid filename"))?;
-    let download_url = RELEASE_DOWNLOAD_URL_TEMPLATE.replace("{file}", dump_file_name);
+    let release_tag = runtime.env.get("RELEASE_TAG").map(|value| value.as_str());
+    let download_url = build_release_download_url(dump_file_name, release_tag);
     let manifest_path = db_dir.join("manifest.yaml");
     update_manifest(
         &manifest_path,
@@ -214,6 +218,17 @@ fn resolve_path(base: &Path, configured: &Path) -> PathBuf {
     }
 }
 
+fn build_release_download_url(file_name: &str, release_tag: Option<&str>) -> String {
+    let normalized_tag = release_tag.map(str::trim).filter(|tag| !tag.is_empty());
+
+    match normalized_tag {
+        Some(tag) if tag != "latest" => RELEASE_DOWNLOAD_URL_BY_TAG_TEMPLATE
+            .replace("{tag}", tag)
+            .replace("{file}", file_name),
+        _ => RELEASE_DOWNLOAD_URL_TEMPLATE.replace("{file}", file_name),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -249,5 +264,32 @@ mod tests {
         let configured = Path::new("data/db");
         let resolved = resolve_path(base, configured);
         assert_eq!(resolved, base.join(configured));
+    }
+
+    #[test]
+    fn build_release_download_url_defaults_to_latest() {
+        let url = build_release_download_url("42161.sql.gz", None);
+        assert_eq!(
+            url,
+            "https://github.com/findolor/local_db_remote/releases/latest/download/42161.sql.gz"
+        );
+    }
+
+    #[test]
+    fn build_release_download_url_handles_latest_tag_alias() {
+        let url = build_release_download_url("42161.sql.gz", Some(" latest "));
+        assert_eq!(
+            url,
+            "https://github.com/findolor/local_db_remote/releases/latest/download/42161.sql.gz"
+        );
+    }
+
+    #[test]
+    fn build_release_download_url_uses_named_release_tag() {
+        let url = build_release_download_url("42161.sql.gz", Some("sync-1234"));
+        assert_eq!(
+            url,
+            "https://github.com/findolor/local_db_remote/releases/download/sync-1234/42161.sql.gz"
+        );
     }
 }

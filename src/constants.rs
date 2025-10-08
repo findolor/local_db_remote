@@ -3,7 +3,9 @@ use num_format::{Locale, ToFormattedString};
 pub const CLI_ARCHIVE_NAME: &str = "rain-orderbook-cli.tar.gz";
 pub const CLI_ARCHIVE_URL_TEMPLATE: &str = "https://raw.githubusercontent.com/rainlanguage/rain.orderbook/{commit}/crates/cli/bin/rain-orderbook-cli.tar.gz";
 pub const RELEASE_DOWNLOAD_URL_TEMPLATE: &str =
-    "https://github.com/rainlanguage/rain.local.db.remote/releases/latest/download/{file}";
+    "https://github.com/findolor/local_db_remote/releases/latest/download/{file}";
+pub const RELEASE_DOWNLOAD_URL_BY_TAG_TEMPLATE: &str =
+    "https://github.com/findolor/local_db_remote/releases/download/{tag}/{file}";
 
 pub const API_TOKEN_ENV_VARS: &[&str] = &[
     "RAIN_API_TOKEN",
