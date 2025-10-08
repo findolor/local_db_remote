@@ -42,28 +42,29 @@ pub fn prepare_database(db_stem: &str, db_dir: &Path) -> Result<(PathBuf, PathBu
             db_stem,
             dump_path.display()
         );
-        let output = Command::new("gzip")
+        let staging_file = fs::File::create(&staging_sql_path).with_context(|| {
+            format!(
+                "failed to create staging sql dump {}",
+                staging_sql_path.display()
+            )
+        })?;
+        let status = Command::new("gzip")
             .arg("-dc")
             .arg(&dump_path)
-            .output()
+            .stdout(Stdio::from(staging_file))
+            .status()
             .with_context(|| {
                 format!("failed to spawn gzip to decompress {}", dump_path.display())
             })?;
 
-        if !output.status.success() {
+        if !status.success() {
+            let _ = fs::remove_file(&staging_sql_path);
             anyhow::bail!(
                 "failed to decompress sql dump for {} (exit code {:?})",
                 db_stem,
-                output.status.code()
+                status.code()
             );
         }
-
-        fs::write(&staging_sql_path, &output.stdout).with_context(|| {
-            format!(
-                "failed to write staging sql dump {}",
-                staging_sql_path.display()
-            )
-        })?;
 
         if let Err(error) = load_sql_dump(&staging_sql_path, &db_path, db_stem) {
             let _ = fs::remove_file(&staging_sql_path);
@@ -104,26 +105,27 @@ pub fn finalize_database(db_stem: &str, db_path: &Path, dump_path: &Path) -> Res
         db_stem,
         dump_path.display()
     );
-    let output = Command::new("gzip")
-        .arg("-c")
-        .arg(&sql_path)
-        .output()
-        .with_context(|| format!("failed to spawn gzip to compress {}", db_stem))?;
-
-    if !output.status.success() {
-        anyhow::bail!(
-            "failed to compress sql dump for {} (exit code {:?})",
-            db_stem,
-            output.status.code()
-        );
-    }
-
-    fs::write(&temp_dump_path, &output.stdout).with_context(|| {
+    let compressed_file = fs::File::create(&temp_dump_path).with_context(|| {
         format!(
-            "failed to write compressed dump {}",
+            "failed to create compressed dump {}",
             temp_dump_path.display()
         )
     })?;
+    let status = Command::new("gzip")
+        .arg("-c")
+        .arg(&sql_path)
+        .stdout(Stdio::from(compressed_file))
+        .status()
+        .with_context(|| format!("failed to spawn gzip to compress {}", db_stem))?;
+
+    if !status.success() {
+        let _ = fs::remove_file(&temp_dump_path);
+        anyhow::bail!(
+            "failed to compress sql dump for {} (exit code {:?})",
+            db_stem,
+            status.code()
+        );
+    }
 
     if path_exists(dump_path)? {
         fs::remove_file(dump_path)

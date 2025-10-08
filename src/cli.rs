@@ -59,7 +59,14 @@ pub fn run_cli_sync(options: &RunCliSyncOptions) -> Result<()> {
         args.push(end.to_string());
     }
 
-    println!("Running: {} {}", options.cli_binary, args.join(" "));
+    let mut log_args = args.clone();
+    if let Some(index) = log_args.iter().position(|arg| arg == "--api-token") {
+        if let Some(value) = log_args.get_mut(index + 1) {
+            *value = "***".to_string();
+        }
+    }
+
+    println!("Running: {} {}", options.cli_binary, log_args.join(" "));
 
     let status = Command::new(&options.cli_binary)
         .args(&args)
