@@ -2,6 +2,7 @@
 name = "rain_local_db_remote"
 version = "0.1.0"
 edition = "2021"
+default-run = "rain_local_db_remote"
 
 [dependencies]
 anyhow = "1.0"
