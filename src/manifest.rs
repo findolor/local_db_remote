@@ -35,6 +35,16 @@ impl Default for Manifest {
 pub struct ManifestEntry {
     pub dump_url: String,
     pub dump_timestamp: String,
+    #[serde(default = "ManifestEntry::default_seed_generation")]
+    pub seed_generation: u32,
+}
+
+impl ManifestEntry {
+    pub const DEFAULT_SEED_GENERATION: u32 = 1;
+
+    pub fn default_seed_generation() -> u32 {
+        Self::DEFAULT_SEED_GENERATION
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -122,11 +132,19 @@ pub fn update_manifest(
         );
     }
 
+    let network_id = NetworkId::from(network_id);
+    let seed_generation = manifest
+        .networks
+        .get(&network_id)
+        .map(|entry| entry.seed_generation)
+        .unwrap_or(ManifestEntry::DEFAULT_SEED_GENERATION);
+
     let entry = ManifestEntry {
         dump_url: dump_url.to_string(),
         dump_timestamp: timestamp.to_rfc3339(),
+        seed_generation,
     };
-    manifest.networks.insert(NetworkId::from(network_id), entry);
+    manifest.networks.insert(network_id, entry);
 
     let mut serialized =
         serde_yaml::to_string(&manifest).context("failed to serialize manifest to YAML")?;
@@ -175,7 +193,8 @@ mod tests {
         let parsed: Manifest =
             serde_yaml::from_str(&fs::read_to_string(&manifest_path).unwrap()).unwrap();
         assert_eq!(parsed.schema_version, Manifest::CURRENT_SCHEMA_VERSION);
-        assert!(parsed.networks.contains_key(&NetworkId::from(42161)));
+        let entry = parsed.networks.get(&NetworkId::from(42161)).unwrap();
+        assert_eq!(entry.seed_generation, ManifestEntry::DEFAULT_SEED_GENERATION);
     }
 
     #[test]
@@ -190,6 +209,7 @@ mod tests {
             ManifestEntry {
                 dump_url: "https://example.com/old.sql.gz".to_string(),
                 dump_timestamp: "2024-01-01T00:00:00Z".to_string(),
+                seed_generation: 3,
             },
         );
         fs::write(&manifest_path, serde_yaml::to_string(&manifest).unwrap()).unwrap();
@@ -204,8 +224,13 @@ mod tests {
 
         let parsed: Manifest =
             serde_yaml::from_str(&fs::read_to_string(&manifest_path).unwrap()).unwrap();
-        assert!(parsed.networks.contains_key(&NetworkId::from(1u64)));
-        assert!(parsed.networks.contains_key(&NetworkId::from(42161u64)));
+        let old_entry = parsed.networks.get(&NetworkId::from(1u64)).unwrap();
+        assert_eq!(old_entry.seed_generation, 3);
+        let new_entry = parsed.networks.get(&NetworkId::from(42161u64)).unwrap();
+        assert_eq!(
+            new_entry.seed_generation,
+            ManifestEntry::DEFAULT_SEED_GENERATION
+        );
     }
 
     #[test]
