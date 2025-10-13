@@ -34,39 +34,10 @@ jobs:
           else
             echo "CREATE_RELEASE=false" >> "$GITHUB_ENV"
           fi
-          echo "DATA_CHANGED=false" >> "$GITHUB_ENV"
       - name: Run sync process
         run: nix develop --command cargo run --release
-      - name: Configure Git
-        if: github.ref == 'refs/heads/main'
-        env:
-          CI_GIT_USER: ${{ secrets.CI_GIT_USER }}
-          CI_GIT_EMAIL: ${{ secrets.CI_GIT_EMAIL }}
-        run: |
-          set -euo pipefail
-          if [ -z "${CI_GIT_USER:-}" ] || [ -z "${CI_GIT_EMAIL:-}" ]; then
-            echo "CI_GIT_USER and CI_GIT_EMAIL secrets must be set to commit dumps." >&2
-            exit 1
-          fi
-          git config user.name "$CI_GIT_USER"
-          git config user.email "$CI_GIT_EMAIL"
-      - name: Commit updated dumps
-        if: github.ref == 'refs/heads/main'
-        run: |
-          set -euo pipefail
-          CHANGES=$(git status --porcelain -- data || true)
-          if [ -z "$CHANGES" ]; then
-            echo "No dump changes detected; skipping commit."
-            exit 0
-          fi
-
-          echo "DATA_CHANGED=true" >> "$GITHUB_ENV"
-
-          git add data
-          git commit -m "update orderbook dump"
-          git push origin "${GITHUB_REF#refs/heads/}"
       - name: Publish release assets
-        if: env.CREATE_RELEASE == 'true' && env.DATA_CHANGED == 'true'
+        if: env.CREATE_RELEASE == 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
