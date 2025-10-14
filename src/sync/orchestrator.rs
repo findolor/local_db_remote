@@ -41,7 +41,12 @@ pub fn run_sync_with(runtime: SyncRuntime, config: SyncConfig) -> Result<()> {
     let cli_dir = resolve_path(&runtime.cwd, &config.cli_dir);
     let cli_binary = runtime.archive.extract_binary(&archive_path, &cli_dir)?;
 
-    let _ = fs::remove_file(&archive_path);
+    if let Err(error) = fs::remove_file(&archive_path) {
+        eprintln!(
+            "Failed to remove CLI archive {}: {error}",
+            archive_path.display()
+        );
+    }
 
     let api_token = resolve_api_token(&runtime.env)?;
     println!("Using API token sourced from environment.");
