@@ -1101,3 +1101,98 @@ fn run_sync_with_fails_when_database_finalize_fails() {
     let db_path = cwd.join(format!("data/{chain_id}.db"));
     assert!(!db_path.exists());
 }
+
+#[test]
+fn run_sync_with_errors_when_cli_binary_url_missing() {
+    let temp = tempdir().unwrap();
+    let cwd = temp.path().to_path_buf();
+
+    let mut env = base_env();
+    env.remove(CLI_BINARY_URL_ENV_VAR);
+
+    let runtime = SyncRuntime {
+        env,
+        cwd,
+        http: Box::new(StubHttpClient::new("settings: true")),
+        cli_runner: Box::new(MockCliRunner::default()),
+        archive: Box::new(MockArchiveService::default()),
+        database: Box::new(MockDatabaseManager::new(SyncPlan {
+            db_path: PathBuf::new(),
+            dump_path: PathBuf::new(),
+            last_synced_block: None,
+            next_start_block: None,
+        })),
+        manifest: Box::new(MockManifestService::new(Manifest::new())),
+        time: Box::new(make_time_provider(1)),
+    };
+
+    let err = run_sync_with(runtime, SyncConfig::default()).unwrap_err();
+    assert!(
+        err.to_string()
+            .contains(format!("{CLI_BINARY_URL_ENV_VAR} must be set").as_str()),
+        "unexpected error: {err}"
+    );
+}
+
+#[test]
+fn run_sync_with_errors_when_settings_yaml_missing() {
+    let temp = tempdir().unwrap();
+    let cwd = temp.path().to_path_buf();
+
+    let mut env = base_env();
+    env.insert(SETTINGS_YAML_ENV_VAR.to_string(), "   ".to_string());
+
+    let runtime = SyncRuntime {
+        env,
+        cwd,
+        http: Box::new(StubHttpClient::new("settings: true")),
+        cli_runner: Box::new(MockCliRunner::default()),
+        archive: Box::new(MockArchiveService::default()),
+        database: Box::new(MockDatabaseManager::new(SyncPlan {
+            db_path: PathBuf::new(),
+            dump_path: PathBuf::new(),
+            last_synced_block: None,
+            next_start_block: None,
+        })),
+        manifest: Box::new(MockManifestService::new(Manifest::new())),
+        time: Box::new(make_time_provider(1)),
+    };
+
+    let err = run_sync_with(runtime, SyncConfig::default()).unwrap_err();
+    assert!(
+        err.to_string()
+            .contains(format!("{SETTINGS_YAML_ENV_VAR} must be set").as_str()),
+        "unexpected error: {err}"
+    );
+}
+
+#[test]
+fn run_sync_with_errors_when_api_token_missing() {
+    let temp = tempdir().unwrap();
+    let cwd = temp.path().to_path_buf();
+
+    let mut env = base_env();
+    env.remove(API_TOKEN_ENV_VARS[0]);
+
+    let runtime = SyncRuntime {
+        env,
+        cwd,
+        http: Box::new(StubHttpClient::new("settings: true")),
+        cli_runner: Box::new(MockCliRunner::default()),
+        archive: Box::new(MockArchiveService::default()),
+        database: Box::new(MockDatabaseManager::new(SyncPlan {
+            db_path: PathBuf::new(),
+            dump_path: PathBuf::new(),
+            last_synced_block: None,
+            next_start_block: None,
+        })),
+        manifest: Box::new(MockManifestService::new(Manifest::new())),
+        time: Box::new(make_time_provider(2)),
+    };
+
+    let err = run_sync_with(runtime, SyncConfig::default()).unwrap_err();
+    assert!(
+        err.to_string().contains("Missing API token"),
+        "unexpected error: {err}"
+    );
+}
