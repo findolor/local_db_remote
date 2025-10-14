@@ -202,3 +202,106 @@ fn resolve_path(base: &Path, configured: &Path) -> PathBuf {
         base.join(configured)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::http::HttpClient;
+    use anyhow::anyhow;
+    use std::collections::HashMap;
+    use std::sync::Mutex;
+
+    #[test]
+    fn resolve_api_token_returns_trimmed_value() {
+        let mut env = HashMap::new();
+        env.insert(API_TOKEN_ENV_VARS[0].to_string(), "  token  ".to_string());
+
+        let token = resolve_api_token(&env).expect("token should be returned");
+        assert_eq!(token, "token");
+    }
+
+    #[test]
+    fn resolve_api_token_errors_when_missing() {
+        let env = HashMap::new();
+        let err = resolve_api_token(&env).unwrap_err();
+        assert!(
+            err.to_string().contains("Missing API token"),
+            "unexpected error message: {err}"
+        );
+    }
+
+    struct RecordingHttpClient {
+        response: String,
+        requests: Mutex<Vec<String>>,
+    }
+
+    impl RecordingHttpClient {
+        fn new(response: &str) -> Self {
+            Self {
+                response: response.to_string(),
+                requests: Mutex::new(Vec::new()),
+            }
+        }
+
+        fn requests(&self) -> Vec<String> {
+            self.requests.lock().unwrap().clone()
+        }
+    }
+
+    impl HttpClient for RecordingHttpClient {
+        fn fetch_text(&self, url: &str) -> Result<String> {
+            self.requests.lock().unwrap().push(url.to_string());
+            Ok(self.response.clone())
+        }
+
+        fn fetch_binary(&self, _url: &str) -> Result<Vec<u8>> {
+            Err(anyhow!("unexpected binary request"))
+        }
+    }
+
+    #[test]
+    fn resolve_settings_yaml_fetches_remote_document() {
+        let mut env = HashMap::new();
+        env.insert(
+            SETTINGS_YAML_ENV_VAR.to_string(),
+            " https://example.com/settings.yaml ".to_string(),
+        );
+        let http = RecordingHttpClient::new("settings: true");
+
+        let yaml = resolve_settings_yaml(&env, &http).expect("settings yaml should load");
+        assert_eq!(yaml, "settings: true");
+        assert_eq!(
+            http.requests(),
+            vec!["https://example.com/settings.yaml".to_string()]
+        );
+    }
+
+    #[test]
+    fn resolve_settings_yaml_errors_when_env_missing() {
+        let env = HashMap::new();
+        let http = RecordingHttpClient::new("ignored");
+
+        let err = resolve_settings_yaml(&env, &http).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains(format!("{SETTINGS_YAML_ENV_VAR} must be set").as_str()),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn resolve_path_joins_relative_segments() {
+        let base = Path::new("/data");
+        let configured = Path::new("nested/output");
+        let resolved = resolve_path(base, configured);
+        assert_eq!(resolved, PathBuf::from("/data/nested/output"));
+    }
+
+    #[test]
+    fn resolve_path_returns_absolute_input() {
+        let base = Path::new("/data");
+        let configured = Path::new("/tmp/absolute");
+        let resolved = resolve_path(base, configured);
+        assert_eq!(resolved, PathBuf::from("/tmp/absolute"));
+    }
+}

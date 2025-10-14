@@ -265,3 +265,202 @@ pub(crate) fn normalize_yaml(contents: &str) -> String {
         contents.to_string()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::http::HttpClient;
+    use crate::manifest::{ManifestEntry, NetworkId};
+    use std::sync::Mutex;
+    use tempfile::tempdir;
+
+    struct TextHttpClient {
+        body: String,
+        requests: Mutex<Vec<String>>,
+    }
+
+    impl TextHttpClient {
+        fn new(body: &str) -> Self {
+            Self {
+                body: body.to_string(),
+                requests: Mutex::new(Vec::new()),
+            }
+        }
+
+        fn requests(&self) -> Vec<String> {
+            self.requests.lock().unwrap().clone()
+        }
+    }
+
+    impl HttpClient for TextHttpClient {
+        fn fetch_text(&self, url: &str) -> Result<String> {
+            self.requests.lock().unwrap().push(url.to_string());
+            Ok(self.body.clone())
+        }
+
+        fn fetch_binary(&self, _url: &str) -> Result<Vec<u8>> {
+            anyhow::bail!("unexpected binary request")
+        }
+    }
+
+    struct FailingTextHttpClient {
+        requests: Mutex<Vec<String>>,
+        message: String,
+    }
+
+    impl FailingTextHttpClient {
+        fn new(message: &str) -> Self {
+            Self {
+                requests: Mutex::new(Vec::new()),
+                message: message.to_string(),
+            }
+        }
+
+        fn requests(&self) -> Vec<String> {
+            self.requests.lock().unwrap().clone()
+        }
+    }
+
+    impl HttpClient for FailingTextHttpClient {
+        fn fetch_text(&self, url: &str) -> Result<String> {
+            self.requests.lock().unwrap().push(url.to_string());
+            anyhow::bail!(self.message.clone())
+        }
+
+        fn fetch_binary(&self, _url: &str) -> Result<Vec<u8>> {
+            anyhow::bail!("unexpected binary request")
+        }
+    }
+
+    struct BinaryHttpClient {
+        payload: Vec<u8>,
+        requests: Mutex<Vec<String>>,
+    }
+
+    impl BinaryHttpClient {
+        fn new(payload: &[u8]) -> Self {
+            Self {
+                payload: payload.to_vec(),
+                requests: Mutex::new(Vec::new()),
+            }
+        }
+
+        fn requests(&self) -> Vec<String> {
+            self.requests.lock().unwrap().clone()
+        }
+    }
+
+    impl HttpClient for BinaryHttpClient {
+        fn fetch_text(&self, _url: &str) -> Result<String> {
+            anyhow::bail!("unexpected text request")
+        }
+
+        fn fetch_binary(&self, url: &str) -> Result<Vec<u8>> {
+            self.requests.lock().unwrap().push(url.to_string());
+            Ok(self.payload.clone())
+        }
+    }
+
+    #[test]
+    fn download_manifest_writes_normalized_contents() {
+        let temp = tempdir().unwrap();
+        let manifest_path = temp.path().join("manifest.yaml");
+        let http = TextHttpClient::new(
+            r#"---
+schema_version: 1
+networks: {}
+"#,
+        );
+        let service = DefaultManifestService;
+
+        let manifest = service
+            .download_manifest(&http, &manifest_path)
+            .expect("manifest should load");
+
+        assert_eq!(manifest.schema_version, 1);
+        assert!(manifest_path.exists());
+        let stored = std::fs::read_to_string(&manifest_path).unwrap();
+        assert!(
+            !stored.starts_with("---"),
+            "document marker should be stripped: {stored}"
+        );
+        assert_eq!(
+            http.requests(),
+            vec![crate::constants::RELEASE_DOWNLOAD_URL_TEMPLATE.replace("{file}", "manifest.yaml")]
+        );
+    }
+
+    #[test]
+    fn download_manifest_falls_back_to_empty_manifest_on_failure() {
+        let temp = tempdir().unwrap();
+        let manifest_path = temp.path().join("manifest.yaml");
+        let http = FailingTextHttpClient::new("network error");
+        let service = DefaultManifestService;
+
+        let manifest = service
+            .download_manifest(&http, &manifest_path)
+            .expect("fallback manifest should be created");
+
+        assert_eq!(manifest.networks.len(), 0);
+        assert!(manifest_path.exists());
+        let stored = std::fs::read_to_string(&manifest_path).unwrap();
+        assert!(
+            stored.contains("schema_version"),
+            "manifest contents unexpected: {stored}"
+        );
+        assert_eq!(
+            http.requests(),
+            vec![crate::constants::RELEASE_DOWNLOAD_URL_TEMPLATE.replace("{file}", "manifest.yaml")]
+        );
+    }
+
+    #[test]
+    fn download_dumps_writes_dump_files_per_network_entry() {
+        let temp = tempdir().unwrap();
+        let db_dir = temp.path();
+        let manifest = Manifest {
+            schema_version: Manifest::CURRENT_SCHEMA_VERSION,
+            networks: vec![(
+                NetworkId::from(123u64),
+                ManifestEntry {
+                    dump_url: "https://example.com/123.sql.gz".to_string(),
+                    dump_timestamp: "2024-01-01T00:00:00Z".to_string(),
+                    seed_generation: ManifestEntry::DEFAULT_SEED_GENERATION,
+                },
+            )]
+            .into_iter()
+            .collect(),
+        };
+        let http = BinaryHttpClient::new(b"dump-bytes");
+        let service = DefaultManifestService;
+
+        service
+            .download_dumps(&http, &manifest, db_dir)
+            .expect("dumps should download");
+
+        let dump_path = db_dir.join("123.sql.gz");
+        assert!(dump_path.exists());
+        let bytes = std::fs::read(&dump_path).unwrap();
+        assert_eq!(bytes, b"dump-bytes");
+        assert_eq!(
+            http.requests(),
+            vec![crate::constants::RELEASE_DOWNLOAD_URL_TEMPLATE.replace("{file}", "123.sql.gz")]
+        );
+    }
+
+    #[test]
+    fn download_dumps_noops_when_manifest_empty() {
+        let temp = tempdir().unwrap();
+        let db_dir = temp.path();
+        let manifest = Manifest::new();
+        let http = BinaryHttpClient::new(b"unused");
+        let service = DefaultManifestService;
+
+        service
+            .download_dumps(&http, &manifest, db_dir)
+            .expect("empty manifest should skip downloads");
+
+        assert!(std::fs::read_dir(db_dir).unwrap().next().is_none());
+        assert!(http.requests().is_empty());
+    }
+}

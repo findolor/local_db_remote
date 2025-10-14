@@ -150,4 +150,38 @@ mod tests {
         assert!(captured.contains("--end-block 200"));
         assert!(captured.contains("--settings-yaml"));
     }
+
+    #[cfg(unix)]
+    #[test]
+    fn run_cli_sync_propagates_cli_failure() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp = tempdir().unwrap();
+        let cli_path = temp.path().join("rain-orderbook-cli");
+        std::fs::write(&cli_path, "#!/bin/sh\nexit 42\n").unwrap();
+        let mut perms = std::fs::metadata(&cli_path).unwrap().permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&cli_path, perms).unwrap();
+
+        let db_path = temp.path().join("db/failure.db");
+        let options = RunCliSyncOptions {
+            cli_binary: cli_path.display().to_string(),
+            db_path: db_path.display().to_string(),
+            chain_id: 10,
+            api_token: Some("token".to_string()),
+            settings_yaml: "settings: true".to_string(),
+            start_block: None,
+            end_block: None,
+        };
+
+        let err = run_cli_sync(&options).expect_err("cli failure should propagate");
+        assert!(
+            err.to_string().contains("CLI sync failed"),
+            "unexpected error message: {err}"
+        );
+        assert!(
+            temp.path().join("db").exists(),
+            "database directory should be created before failure"
+        );
+    }
 }
