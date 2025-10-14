@@ -7,7 +7,10 @@ use chrono::Utc;
 
 use crate::archive::{download_cli_archive, extract_cli_binary};
 use crate::cli::{run_cli_sync, RunCliSyncOptions};
-use crate::constants::{API_TOKEN_ENV_VARS, CLI_ARCHIVE_NAME, RELEASE_DOWNLOAD_URL_TEMPLATE};
+use crate::constants::{
+    API_TOKEN_ENV_VARS, CLI_ARCHIVE_NAME, CLI_BINARY_URL_ENV_VAR, RELEASE_DOWNLOAD_URL_TEMPLATE,
+    SETTINGS_YAML_ENV_VAR,
+};
 use crate::database::{finalize_database, plan_sync, prepare_database};
 use crate::http::{DefaultHttpClient, HttpClient};
 use crate::logging::log_plan;
@@ -62,18 +65,20 @@ pub fn run_sync_with(runtime: SyncRuntime, config: SyncConfig) -> Result<()> {
     let start_time = Utc::now();
     println!("Sync started at {}", start_time.to_rfc3339());
 
-    let commit_hash = runtime
+    let cli_binary_url = runtime
         .env
-        .get("COMMIT_HASH")
+        .get(CLI_BINARY_URL_ENV_VAR)
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
         .ok_or_else(|| {
-            anyhow::anyhow!("COMMIT_HASH must be set to a valid rain.orderbook commit hash")
+            anyhow::anyhow!("{CLI_BINARY_URL_ENV_VAR} must be set to a valid CLI binary URL")
         })?;
-    println!("Using commit hash {commit_hash}");
+    println!("Using CLI binary at {cli_binary_url}");
+
+    let settings_yaml = resolve_settings_yaml(&runtime.env, runtime.http.as_ref())?;
 
     let archive_path = runtime.cwd.join(CLI_ARCHIVE_NAME);
-    download_cli_archive(runtime.http.as_ref(), &commit_hash, &archive_path)?;
+    download_cli_archive(runtime.http.as_ref(), &cli_binary_url, &archive_path)?;
 
     let cli_dir = resolve_path(&runtime.cwd, &config.cli_dir);
     let cli_binary = extract_cli_binary(&archive_path, &cli_dir)?;
@@ -106,7 +111,7 @@ pub fn run_sync_with(runtime: SyncRuntime, config: SyncConfig) -> Result<()> {
             chain_id,
             &cli_binary,
             &api_token,
-            &commit_hash,
+            &settings_yaml,
             &db_dir,
             &manifest_path,
         )?;
@@ -128,7 +133,7 @@ fn sync_single_chain(
     chain_id: u64,
     cli_binary: &Path,
     api_token: &str,
-    commit_hash: &str,
+    settings_yaml: &str,
     db_dir: &Path,
     manifest_path: &Path,
 ) -> Result<()> {
@@ -147,7 +152,7 @@ fn sync_single_chain(
             db_path: db_path.display().to_string(),
             chain_id,
             api_token: Some(api_token.to_string()),
-            repo_commit: commit_hash.to_string(),
+            settings_yaml: settings_yaml.to_string(),
             start_block: plan.next_start_block,
             end_block: None,
         })?;
@@ -287,6 +292,19 @@ fn resolve_api_token(env: &HashMap<String, String>) -> Result<String> {
     )
 }
 
+fn resolve_settings_yaml(env: &HashMap<String, String>, http: &dyn HttpClient) -> Result<String> {
+    let url = env
+        .get(SETTINGS_YAML_ENV_VAR)
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            anyhow::anyhow!("{SETTINGS_YAML_ENV_VAR} must be set to a valid settings YAML URL")
+        })?;
+    println!("Fetching settings YAML from {url}");
+    http.fetch_text(url)
+        .with_context(|| format!("failed to download settings YAML from {}", url))
+}
+
 fn resolve_path(base: &Path, configured: &Path) -> PathBuf {
     if configured.is_absolute() {
         configured.to_path_buf()
@@ -317,6 +335,46 @@ mod tests {
         let env = HashMap::new();
         let err = resolve_api_token(&env).unwrap_err();
         assert!(err.to_string().contains("Missing API token"));
+    }
+
+    struct StaticHttpClient {
+        text: String,
+    }
+
+    impl HttpClient for StaticHttpClient {
+        fn fetch_text(&self, _url: &str) -> Result<String> {
+            Ok(self.text.clone())
+        }
+
+        fn fetch_binary(&self, _url: &str) -> Result<Vec<u8>> {
+            Err(anyhow::anyhow!("unexpected binary request"))
+        }
+    }
+
+    #[test]
+    fn resolve_settings_yaml_errors_when_env_missing() {
+        let env = HashMap::new();
+        let http = StaticHttpClient {
+            text: String::new(),
+        };
+        let err = resolve_settings_yaml(&env, &http).unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("SETTINGS_YAML_URL must be set to a valid settings YAML URL"));
+    }
+
+    #[test]
+    fn resolve_settings_yaml_returns_contents() {
+        let mut env = HashMap::new();
+        env.insert(
+            SETTINGS_YAML_ENV_VAR.to_string(),
+            "https://example.com/settings.yaml".to_string(),
+        );
+        let http = StaticHttpClient {
+            text: "settings: true".to_string(),
+        };
+        let contents = resolve_settings_yaml(&env, &http).unwrap();
+        assert_eq!(contents, "settings: true");
     }
 
     #[test]

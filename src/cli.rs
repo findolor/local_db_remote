@@ -11,7 +11,7 @@ pub struct RunCliSyncOptions {
     pub db_path: String,
     pub chain_id: u64,
     pub api_token: Option<String>,
-    pub repo_commit: String,
+    pub settings_yaml: String,
     pub start_block: Option<u64>,
     pub end_block: Option<u64>,
 }
@@ -43,10 +43,10 @@ pub fn run_cli_sync(options: &RunCliSyncOptions) -> Result<()> {
         options.db_path.clone(),
         "--chain-id".to_string(),
         options.chain_id.to_string(),
-        "--repo-commit".to_string(),
-        options.repo_commit.clone(),
         "--api-token".to_string(),
         api_token,
+        "--settings-yaml".to_string(),
+        options.settings_yaml.clone(),
     ];
 
     if let Some(start) = options.start_block {
@@ -63,6 +63,11 @@ pub fn run_cli_sync(options: &RunCliSyncOptions) -> Result<()> {
     if let Some(index) = log_args.iter().position(|arg| arg == "--api-token") {
         if let Some(value) = log_args.get_mut(index + 1) {
             *value = "***".to_string();
+        }
+    }
+    if let Some(index) = log_args.iter().position(|arg| arg == "--settings-yaml") {
+        if let Some(value) = log_args.get_mut(index + 1) {
+            *value = "<inline-yaml>".to_string();
         }
     }
 
@@ -97,7 +102,7 @@ mod tests {
             db_path: temp.path().join("db/test.db").display().to_string(),
             chain_id: 1,
             api_token: None,
-            repo_commit: "commit".to_string(),
+            settings_yaml: "settings: true".to_string(),
             start_block: None,
             end_block: None,
         };
@@ -130,7 +135,7 @@ mod tests {
             db_path: db_path.display().to_string(),
             chain_id: 42161,
             api_token: Some("token".to_string()),
-            repo_commit: "hash".to_string(),
+            settings_yaml: "test: value".to_string(),
             start_block: Some(100),
             end_block: Some(200),
         };
@@ -143,5 +148,6 @@ mod tests {
         assert!(captured.contains(db_path.to_str().unwrap()));
         assert!(captured.contains("--start-block 100"));
         assert!(captured.contains("--end-block 200"));
+        assert!(captured.contains("--settings-yaml"));
     }
 }

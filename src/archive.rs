@@ -5,20 +5,19 @@ use std::process::Command;
 use anyhow::{Context, Result};
 use walkdir::WalkDir;
 
-use crate::constants::CLI_ARCHIVE_URL_TEMPLATE;
 use crate::http::HttpClient;
 
 pub fn download_cli_archive(
     http: &dyn HttpClient,
-    commit_hash: &str,
+    cli_binary_url: &str,
     destination: &Path,
 ) -> Result<PathBuf> {
-    let url = CLI_ARCHIVE_URL_TEMPLATE.replace("{commit}", commit_hash);
-    let bytes = http.fetch_binary(&url)?;
+    let bytes = http.fetch_binary(cli_binary_url)?;
     fs::write(destination, &bytes)
         .with_context(|| format!("failed to write archive to {}", destination.display()))?;
     println!(
-        "Downloaded CLI archive to {} ({} bytes)",
+        "Downloaded CLI archive from {} to {} ({} bytes)",
+        cli_binary_url,
         destination.display(),
         bytes.len()
     );
@@ -114,7 +113,8 @@ mod tests {
             payload: b"test-bytes".to_vec(),
         };
 
-        let path = download_cli_archive(&client, "deadbeef", &destination).unwrap();
+        let path =
+            download_cli_archive(&client, "https://example.com/cli.tar.gz", &destination).unwrap();
 
         assert_eq!(path, destination);
         let written = std::fs::read(&destination).unwrap();
