@@ -6,6 +6,7 @@ pub const RELEASE_DOWNLOAD_URL_TEMPLATE: &str =
     "https://github.com/findolor/local_db_remote/releases/latest/download/{file}";
 pub const API_TOKEN_ENV_VARS: &[&str] = &["HYPERRPC_API_TOKEN"];
 pub const SETTINGS_YAML_ENV_VAR: &str = "SETTINGS_YAML_URL";
+pub const SYNC_CHAIN_IDS_ENV_VAR: &str = "SYNC_CHAIN_IDS";
 
 pub fn format_number(value: u64) -> String {
     value.to_formatted_string(&Locale::en)

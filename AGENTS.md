@@ -22,7 +22,11 @@ Unit tests live alongside their modules in `src/`, including the workflow binari
 Use Conventional Commit prefixes (`feat:`, `fix:`, `chore:`) for manual changes. PRs should summarize their intent, list affected networks or data directories, and call out required environment variables (`CLI_BINARY_URL`, `SETTINGS_YAML_URL`, `HYPERRPC_API_TOKEN`, etc.). Attach sync logs when they demonstrate behavioural changes. Automation currently commits with messages like `update orderbook dump` or `bump manifest schema version to ...`; keep those as-is unless the workflow changes.
 
 ## Environment Notes
-`CLI_BINARY_URL` must point to the release asset for the `rain-orderbook-cli` archive and is surfaced as a GitHub repository variable (`vars.CLI_BINARY_URL`) in CI; export it locally before running `cargo run --release`. `SETTINGS_YAML_URL` must resolve to the configuration YAML the CLI consumes and is available via `vars.SETTINGS_YAML_URL`. API tokens must be supplied via `HYPERRPC_API_TOKEN`. Secrets should remain outside the repo and be injected into the Nix shell or CI environment. Avoid committing temporary SQLite databases—only the gzipped dumps and manifest are canonical.
+`SETTINGS_YAML_URL` must resolve to the configuration YAML the CLI consumes and is available via `vars.SETTINGS_YAML_URL`.
+ API tokens must be supplied via `HYPERRPC_API_TOKEN`.
+Secrets should remain outside the repo and be injected into the Nix shell or CI environment.
+
+`SYNC_CHAIN_IDS` can be set to a comma-separated list of chain identifiers to force those networks to sync even when the release manifest is empty or missing entries. Values must parse as `u64`.
 
 ## CI Automation
 Three manual GitHub Actions live in `.github/workflows/`:

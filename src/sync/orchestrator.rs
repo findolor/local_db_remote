@@ -7,7 +7,7 @@ use anyhow::{Context, Result};
 use crate::cli::RunCliSyncOptions;
 use crate::constants::{
     API_TOKEN_ENV_VARS, CLI_ARCHIVE_NAME, CLI_BINARY_URL_ENV_VAR, RELEASE_DOWNLOAD_URL_TEMPLATE,
-    SETTINGS_YAML_ENV_VAR,
+    SETTINGS_YAML_ENV_VAR, SYNC_CHAIN_IDS_ENV_VAR,
 };
 use crate::logging::log_plan;
 
@@ -70,6 +70,9 @@ pub fn run_sync_with(runtime: SyncRuntime, config: SyncConfig) -> Result<()> {
         .keys()
         .map(|network| u64::from(*network))
         .collect();
+    for chain_id in parse_chain_ids_from_env(&runtime.env)? {
+        chain_ids.insert(chain_id);
+    }
     for chain_id in &config.chain_ids {
         chain_ids.insert(*chain_id);
     }
@@ -208,6 +211,29 @@ fn resolve_path(base: &Path, configured: &Path) -> PathBuf {
     }
 }
 
+fn parse_chain_ids_from_env(env: &std::collections::HashMap<String, String>) -> Result<Vec<u64>> {
+    let Some(raw) = env.get(SYNC_CHAIN_IDS_ENV_VAR) else {
+        return Ok(Vec::new());
+    };
+
+    let mut chain_ids = Vec::new();
+    for token in raw.split(',') {
+        let trimmed = token.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let chain_id = trimmed.parse::<u64>().with_context(|| {
+            format!(
+                "{} must contain comma-separated u64 values (invalid value: `{}`)",
+                SYNC_CHAIN_IDS_ENV_VAR, trimmed
+            )
+        })?;
+        chain_ids.push(chain_id);
+    }
+
+    Ok(chain_ids)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -308,5 +334,32 @@ mod tests {
         let configured = Path::new("/tmp/absolute");
         let resolved = resolve_path(base, configured);
         assert_eq!(resolved, PathBuf::from("/tmp/absolute"));
+    }
+
+    #[test]
+    fn parse_chain_ids_from_env_returns_parsed_values() {
+        let mut env = HashMap::new();
+        env.insert(
+            SYNC_CHAIN_IDS_ENV_VAR.to_string(),
+            " 10,20 , , 30 ".to_string(),
+        );
+
+        let ids = super::parse_chain_ids_from_env(&env).expect("ids should parse");
+        assert_eq!(ids, vec![10, 20, 30]);
+    }
+
+    #[test]
+    fn parse_chain_ids_from_env_errors_on_invalid_value() {
+        let mut env = HashMap::new();
+        env.insert(
+            SYNC_CHAIN_IDS_ENV_VAR.to_string(),
+            "10,not-a-number".to_string(),
+        );
+
+        let err = super::parse_chain_ids_from_env(&env).unwrap_err();
+        assert!(
+            err.to_string().contains("invalid value: `not-a-number`"),
+            "unexpected error: {err}"
+        );
     }
 }

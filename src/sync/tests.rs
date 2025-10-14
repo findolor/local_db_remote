@@ -15,7 +15,7 @@ use super::runtime::{
 use crate::cli::RunCliSyncOptions;
 use crate::constants::{
     API_TOKEN_ENV_VARS, CLI_ARCHIVE_NAME, CLI_BINARY_URL_ENV_VAR, RELEASE_DOWNLOAD_URL_TEMPLATE,
-    SETTINGS_YAML_ENV_VAR,
+    SETTINGS_YAML_ENV_VAR, SYNC_CHAIN_IDS_ENV_VAR,
 };
 use crate::database::SyncPlan;
 use crate::http::HttpClient;
@@ -693,6 +693,80 @@ fn run_sync_with_processes_manifest_and_config_chain_ids() {
         cwd.join(format!("data/{manifest_chain}.db"))
     );
     assert_eq!(plan_calls[1].0, cwd.join(format!("data/{config_chain}.db")));
+
+    assert_eq!(archive.download_calls().len(), 1);
+    assert_eq!(archive.extract_calls().len(), 1);
+    assert_eq!(
+        http_client.requests(),
+        vec!["https://example.com/settings.yaml".to_string()]
+    );
+    assert_eq!(time_provider.remaining(), 0);
+}
+
+#[test]
+fn run_sync_with_processes_env_chain_ids() {
+    let temp = tempdir().unwrap();
+    let cwd = temp.path().to_path_buf();
+
+    let manifest = Manifest::new();
+
+    let cli_runner = MockCliRunner::default();
+    let archive = MockArchiveService::default();
+    let plan = SyncPlan {
+        db_path: PathBuf::new(),
+        dump_path: PathBuf::new(),
+        last_synced_block: Some(20),
+        next_start_block: Some(21),
+    };
+    let database = MockDatabaseManager::new(plan);
+    let manifest_service = MockManifestService::new(manifest);
+    let time_provider = make_time_provider(8);
+    let http_client = StubHttpClient::new("settings: true");
+    let mut env = base_env();
+    env.insert(
+        SYNC_CHAIN_IDS_ENV_VAR.to_string(),
+        "101, 202,303".to_string(),
+    );
+
+    let runtime = SyncRuntime {
+        env,
+        cwd: cwd.clone(),
+        http: Box::new(http_client.clone()),
+        cli_runner: Box::new(cli_runner.clone()),
+        archive: Box::new(archive.clone()),
+        database: Box::new(database.clone()),
+        manifest: Box::new(manifest_service.clone()),
+        time: Box::new(time_provider.clone()),
+    };
+
+    run_sync_with(runtime, SyncConfig::default()).unwrap();
+
+    let calls = cli_runner.calls();
+    assert_eq!(calls.len(), 3);
+    let chains: Vec<u64> = calls.iter().map(|call| call.chain_id).collect();
+    assert_eq!(chains, vec![101, 202, 303]);
+    for call in &calls {
+        assert_eq!(call.start_block, Some(21));
+        assert_eq!(call.api_token.as_deref(), Some("token"));
+    }
+
+    let updates = manifest_service.updates();
+    assert_eq!(updates.len(), 3);
+    assert_eq!(updates[0].1, 101);
+    assert_eq!(updates[1].1, 202);
+    assert_eq!(updates[2].1, 303);
+
+    let prepare_calls = database.prepare_calls();
+    assert_eq!(prepare_calls.len(), 3);
+    assert_eq!(prepare_calls[0].0, "101");
+    assert_eq!(prepare_calls[1].0, "202");
+    assert_eq!(prepare_calls[2].0, "303");
+
+    let plan_calls = database.plan_calls();
+    assert_eq!(plan_calls.len(), 3);
+    assert_eq!(plan_calls[0].0, cwd.join("data/101.db"));
+    assert_eq!(plan_calls[1].0, cwd.join("data/202.db"));
+    assert_eq!(plan_calls[2].0, cwd.join("data/303.db"));
 
     assert_eq!(archive.download_calls().len(), 1);
     assert_eq!(archive.extract_calls().len(), 1);
