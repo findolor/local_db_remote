@@ -6,5 +6,6 @@ bin/
 rain-orderbook-cli.tar.gz
 
 # Local artifacts
+data/
 .DS_Store
 .env

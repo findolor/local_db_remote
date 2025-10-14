@@ -24,6 +24,35 @@ jobs:
 
       - uses: DeterminateSystems/flakehub-cache-action@main
 
+      - name: Fetch latest release manifest
+        id: latest
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          api_url="https://api.github.com/repos/${{ github.repository }}/releases/latest"
+          response=$(curl -sSL \
+            -H "authorization: Bearer $GITHUB_TOKEN" \
+            -H "accept: application/vnd.github+json" \
+            "$api_url")
+          tag=$(jq -r '.tag_name' <<<"$response")
+          if [ -z "$tag" ] || [ "$tag" = "null" ]; then
+            echo "No releases found; run the remote-sync workflow first." >&2
+            exit 1
+          fi
+          manifest_url=$(jq -r '.assets[] | select(.name == "manifest.yaml") | .browser_download_url' <<<"$response")
+          if [ -z "$manifest_url" ] || [ "$manifest_url" = "null" ]; then
+            echo "manifest.yaml asset not found in latest release." >&2
+            exit 1
+          fi
+          mkdir -p artifacts
+          curl -sSL \
+            -H "authorization: Bearer $GITHUB_TOKEN" \
+            "$manifest_url" \
+            -o artifacts/manifest.yaml
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "manifest_path=artifacts/manifest.yaml" >> "$GITHUB_OUTPUT"
+
       - name: Bump seed generation
         id: bump
         env:
@@ -36,42 +65,22 @@ jobs:
             exit 1
           fi
 
-          OUTPUT=$(nix develop --command cargo run --quiet --bin bump-seed-generation -- "$CHAIN_ID")
+          manifest_path="${{ steps.latest.outputs.manifest_path }}"
+          OUTPUT=$(nix develop --command cargo run --quiet --bin bump-seed-generation -- "$CHAIN_ID" "$manifest_path")
           echo "$OUTPUT"
           PREVIOUS=$(grep '^previous=' <<< "$OUTPUT" | head -n1 | cut -d= -f2)
           NEXT=$(grep '^next=' <<< "$OUTPUT" | head -n1 | cut -d= -f2)
           echo "previous=$PREVIOUS" >> "$GITHUB_OUTPUT"
           echo "next=$NEXT" >> "$GITHUB_OUTPUT"
 
-      - name: Show manifest diff
-        run: git diff
-
-      - name: Configure Git
-        if: github.ref == 'refs/heads/main'
-        env:
-          CI_GIT_USER: ${{ secrets.CI_GIT_USER }}
-          CI_GIT_EMAIL: ${{ secrets.CI_GIT_EMAIL }}
-        run: |
-          set -euo pipefail
-          if [ -z "${CI_GIT_USER:-}" ] || [ -z "${CI_GIT_EMAIL:-}" ]; then
-            echo "CI_GIT_USER and CI_GIT_EMAIL secrets must be set to commit." >&2
-            exit 1
-          fi
-          git config user.name "$CI_GIT_USER"
-          git config user.email "$CI_GIT_EMAIL"
-
-      - name: Commit seed bump
+      - name: Upload updated manifest to release
         if: github.ref == 'refs/heads/main'
         env:
           CHAIN_ID: ${{ github.event.inputs.chain_id }}
           NEXT: ${{ steps.bump.outputs.next }}
-        run: |
-          set -euo pipefail
-          if git diff --quiet; then
-            echo "No changes to commit."
-            exit 0
-          fi
-
-          git add data/manifest.yaml
-          git commit -m "bump seed generation for chain ${CHAIN_ID} to ${NEXT}"
-          git push origin "${GITHUB_REF#refs/heads/}"
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.latest.outputs.tag }}
+          files: |
+            ${{ steps.latest.outputs.manifest_path }}
+          overwrite: true
