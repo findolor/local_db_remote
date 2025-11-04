@@ -5,7 +5,7 @@ networks:
     chain-id: 8453
     orderbooks:
       - address: 0x52CEB8eBEf648744fFDDE89F7Bc9C3aC35944775
-        dump-url: https://github.com/findolor/local_db_remote/raw/8bff7940a9d96f1e58b0647dc62aa0fa14b80d6b/0x52CEB8eBEf648744fFDDE89F7Bc9C3aC35944775.sql.gz
-        end-block: 37731699
-        end-block-hash: 0xbeef
-        end-block-time-ms: 2
+        dump-url: https://github.com/findolor/local_db_remote/raw/0c8a1d853399e00e5db2f6b7af9d2ca5e453c298/0x52CEB8eBEf648744fFDDE89F7Bc9C3aC35944775.sql.gz
+        end-block: 37732935
+        end-block-hash: 0xcf201dc2e11254f5fb186eac0f56f82928c7b8eeaa65e95b9803030f3dadd6b0
+        end-block-time-ms: 1762255333000
