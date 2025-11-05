@@ -5,7 +5,7 @@ networks:
     chain-id: "42161"
     orderbooks:
       - address: 0x8dF8075e4077dAbf1e95F49059E4C1eEA33094ab
-        dump-url: https://github.com/findolor/local_db_remote/raw/629834924276edcec447882580a061046e69380c/42161-0x8dF8075e4077dAbf1e95F49059E4C1eEA33094ab.sql.gz
+        dump-url: https://raw.githubusercontent.com/findolor/local_db_remote/raw/629834924276edcec447882580a061046e69380c/42161-0x8dF8075e4077dAbf1e95F49059E4C1eEA33094ab.sql.gz
         end-block: "397024964"
         end-block-hash: 0x5a996fc43a716172239248d43b63fef002e580f64d509d9a10ee232cf0b99e97
         end-block-time-ms: "1762338802000"
@@ -13,7 +13,7 @@ networks:
     chain-id: "8453"
     orderbooks:
       - address: 0x52CEB8eBEf648744fFDDE89F7Bc9C3aC35944775
-        dump-url: https://github.com/findolor/local_db_remote/raw/629834924276edcec447882580a061046e69380c/8453-0x52CEB8eBEf648744fFDDE89F7Bc9C3aC35944775.sql.gz
+        dump-url: https://raw.githubusercontent.com/findolor/local_db_remote/raw/629834924276edcec447882580a061046e69380c/8453-0x52CEB8eBEf648744fFDDE89F7Bc9C3aC35944775.sql.gz
         end-block: "37774676"
         end-block-hash: 0x1c069ff02443851f36cbf0d22864382481d7b58859ec95d171963d01aae57da7
         end-block-time-ms: "1762338812000"
@@ -21,7 +21,7 @@ networks:
     chain-id: "137"
     orderbooks:
       - address: 0x8a3C8E610d827093F7437E0C45EFa648563c0dDA
-        dump-url: https://github.com/findolor/local_db_remote/raw/629834924276edcec447882580a061046e69380c/137-0x8a3C8E610d827093F7437E0C45EFa648563c0dDA.sql.gz
+        dump-url: https://raw.githubusercontent.com/findolor/local_db_remote/raw/629834924276edcec447882580a061046e69380c/137-0x8a3C8E610d827093F7437E0C45EFa648563c0dDA.sql.gz
         end-block: "78616922"
         end-block-hash: 0xbe0b0b7336f754be0624033de06a1f4b805f7ad430194d195526543dffd77015
         end-block-time-ms: "1762338812000"
