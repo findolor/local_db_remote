@@ -62,7 +62,8 @@ deployers:
     network: arbitrum
 
 local-db-remotes:
-  raindex: https://pub-7ff233ca8f114c74a2796a803ef8c1bb.r2.dev/manifest.yaml
+  # raindex: https://pub-7ff233ca8f114c74a2796a803ef8c1bb.r2.dev/manifest.yaml
+  raindex: https://raw.githubusercontent.com/findolor/local_db_remote/d03e0263d837ccdd42f708043788ec19cdd200f1/test-manifest.yaml
 
 local-db-sync:
   base:
